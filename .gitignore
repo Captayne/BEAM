@@ -1,0 +1,38 @@
+# ── Build outputs (all Gradle modules) ───────────────────────────────
+**/build/
+/build
+/captures
+.externalNativeBuild
+.cxx
+
+# ── Gradle / Kotlin caches ───────────────────────────────────────────
+.gradle/
+.kotlin/
+
+# ── IDE (Android Studio / IntelliJ) ──────────────────────────────────
+/.idea/
+*.iml
+
+# ── Claude Code local settings (machine-specific) ────────────────────
+.claude/settings.local.json
+
+# ── Machine-specific config ──────────────────────────────────────────
+local.properties
+/local.properties
+
+# ── OS junk ──────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Logs / scratch ───────────────────────────────────────────────────
+*.log
+
+# ── Large vendored binaries & installers (NOT in version control) ────
+#   Diese Dateien werden zum Bauen gebraucht, sind aber zu groß fürs Repo.
+#   Bezugsquellen stehen in ARCHITECTURE.md (Abschnitt Build/Tooling).
+#     - JDK-Installer (Temurin 21, ~171 MB) — nur lokal
+/OpenJDK21U-*.msi
+#     - WiX 3 Toolset (für jpackage/MSI) — nach tools/wix3/ entpacken
+/tools/wix3/
+#     - gebündeltes ffmpeg.exe (~97 MB) — gyan.dev essentials
+/beam-desktop/desktop-resources/**/ffmpeg/ffmpeg.exe

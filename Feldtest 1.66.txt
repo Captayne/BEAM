@@ -1,0 +1,7 @@
+1. Android: BEAM auf dem Smartphone öffnet komischerweise die Links, die vom PC kommen nicht (mehr?), Anroid schlägt nur 4 andere apps vor, die nichts damit zu tun haben. --> in Beam Neu Registerung von *.beam Dateien einbauen und bei jedem Start prüfen und ggf neu setzen. Auch das explizite Öffnen von *.beam und *.beamenc Dateien aus Dateiexplorer erlauben, mit neuem Button, unten links neben dem Button "paste link" dann "import *.beam" 
+2. PC-Beam: Das Icon sollte das gleiche wie bei Android sein
+3. Android: es stehen viele .pending... Dateien im /Download/Beam Ordner. Die sollten idealerweise automatisch aufgeräumt werden, wenn es keinen Prozess mehr dafür gibt. 
+--> Kennt Claude
+
+4. PC-Beam: MSI sollte Vorgängerversion entfernen, bzw, einfach updaten (Wurde grade aufgefordert, die App per System zu entfernen.
+5. Playbutton in Torrentkarte nur, wenn es was zum Abspielen gibt: Streamable Video.. Sonst Sanduhr. Wenn Download Fertig, dann Play-Symbol für Einzelvideo lassen, Ansonsten Ordner-Symbol, um Ordner im registrierten Filemanager zu öffnen bzw. bei Bundles mit reinen Medien Galery öffnen. 

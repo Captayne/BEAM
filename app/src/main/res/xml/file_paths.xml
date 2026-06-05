@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Öffentliche Ordner (Pictures/Movies/Download) für das Öffnen empfangener Dateien (API < 29) -->
+    <external-path name="external" path="." />
+    <!-- .beam-Link-Dateien zum Teilen (cacheDir/beamlinks) -->
+    <cache-path name="beam_links" path="beamlinks/" />
+</paths>
