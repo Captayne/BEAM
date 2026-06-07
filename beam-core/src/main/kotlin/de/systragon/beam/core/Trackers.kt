@@ -14,9 +14,14 @@ object Trackers {
      * eine bereits gespeicherte Nutzerliste **gemerged** (Custom-Einträge bleiben erhalten) — sonst
      * erreichen neue Tracker (z. B. http/https) Bestandsnutzer nie.
      */
-    const val TRACKERS_VERSION = 2
+    const val TRACKERS_VERSION = 3
 
-    const val DEFAULT_TRACKERS = """udp://tracker.opentrackr.org:1337/announce
+    /** Eigene private Beam-Relay-Station (Tracker, Beam-exklusiv via Token-Pfad). GANZ OBEN → zuerst
+     *  gefragt. Öffentliche Tracker bleiben als Notnetz darunter; Nutzer kann sie strippen (pure privat). */
+    const val BEAM_STATION_TRACKER = "http://217.160.159.14/bs7Kf3R9xLmQ2v/announce"
+
+    const val DEFAULT_TRACKERS = """http://217.160.159.14/bs7Kf3R9xLmQ2v/announce
+udp://tracker.opentrackr.org:1337/announce
 udp://open.stealth.si:80/announce
 udp://open.demonii.com:1337/announce
 udp://explodie.org:6969/announce

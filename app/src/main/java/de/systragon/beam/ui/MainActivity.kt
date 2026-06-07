@@ -608,6 +608,9 @@ class MainActivity : ComponentActivity() {
             val builder = TorrentBuilder()
             builder.path(file)
             builder.pieceSize(0)
+            // V1_ONLY: sonst Hybrid-Torrent (v1+v2) → Seeder & Magnet-Empfänger zeigen verschiedene
+            // Infohashes im Handshake → die Relay-Pipe paart sie nie. v1-only = ein Infohash für alle.
+            builder.flags(TorrentBuilder.V1_ONLY)
 
             val result = builder.generate()
             val bencode = result.entry().bencode()

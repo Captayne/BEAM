@@ -323,6 +323,13 @@ class TorrentViewModel(application: Application) : AndroidViewModel(application)
                     val handle = entry.handle ?: return@forEach
                     if (!handle.isValid) return@forEach
                     val status = handle.status()
+                    // „Direkt blockiert"-Erkennung für die Relay-Empfehlung (Senden UND Empfangen):
+                    // Gegenüber bekannt (listPeers>0), aber keine Verbindung (numPeers==0) seit N s.
+                    val nowMs = System.currentTimeMillis()
+                    if (status.listPeers() > 0 && entry.peerSeenAt == 0L) entry.peerSeenAt = nowMs
+                    entry.directBlocked = status.numPeers() == 0 && status.listPeers() > 0 &&
+                        entry.peerSeenAt > 0L && nowMs - entry.peerSeenAt > 25_000L &&  // ~Geduld; später konfigurierbar
+                        entry.state != TorrentState.COMPLETED
                     when (entry.state) {
                         TorrentState.SEEDING -> {
                             entry.uploadedBytes = status.totalUpload()
@@ -490,6 +497,16 @@ class TorrentViewModel(application: Application) : AndroidViewModel(application)
         try {
             context.startService(Intent(context, SeedingService::class.java).apply {
                 action = SeedingService.ACTION_RESTART
+                putExtra(SeedingService.EXTRA_INFO_HASH, infoHash)
+            })
+        } catch (_: Exception) {}
+    }
+
+    /** „Relay NOW!": die Beam-Relay-Station für diesen Transfer sofort zuschalten (Fallback-Zwilling). */
+    fun engageRelay(context: Context, infoHash: String) {
+        try {
+            context.startService(Intent(context, SeedingService::class.java).apply {
+                action = SeedingService.ACTION_RELAY
                 putExtra(SeedingService.EXTRA_INFO_HASH, infoHash)
             })
         } catch (_: Exception) {}

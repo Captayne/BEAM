@@ -25,6 +25,9 @@ object TorrentFactory {
             val builder = TorrentBuilder()
             builder.path(file)
             builder.pieceSize(0) // 0 = libtorrent wählt sinnvolle Piece-Größe
+            // V1_ONLY: libtorrent 2.x baut sonst Hybrid-Torrents (v1+v2) → Seeder & Magnet-Empfänger
+            // präsentieren UNTERSCHIEDLICHE Infohashes im Handshake → die Relay-Pipe paart sie nie.
+            builder.flags(TorrentBuilder.V1_ONLY)
             val bencode = builder.generate().entry().bencode()
 
             outDir.mkdirs()
@@ -66,7 +69,7 @@ object TorrentFactory {
             }
             if (added == 0) { BeamLog.e("TorrentFactory", "createInPlace: keine gültigen Dateien"); return null }
 
-            val ct = create_torrent(vec, 0)               // pieceSize 0 = libtorrent wählt
+            val ct = create_torrent(vec, 0, create_torrent.v1_only)   // pieceSize 0; v1-only (Relay-Pipe!)
             val ec = error_code()
             // Hasht alle Pieces direkt aus <parentPath>/<rel> — KEINE Kopie.
             libtorrent.set_piece_hashes_ex(ct, parentPath, set_piece_hashes_listener(), ec)

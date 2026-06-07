@@ -26,3 +26,4 @@ rootProject.name = "Beam"
 include(":app")
 include(":beam-core")
 include(":beam-desktop")
+include(":beam-relay")

@@ -120,10 +120,27 @@ object TorrentManager {
                 org.libtorrent4j.swig.settings_pack.int_types.max_queued_disk_bytes.swigValue(),
                 16 * 1024 * 1024)
 
+            // BitTorrent-Protokollverschlüsselung (MSE/PE) AUS → Klartext-Handshake. Nötig, damit die
+            // Beam-Relay-Pipe den Infohash aus dem Handshake lesen und A↔B paaren kann. Der INHALT
+            // bleibt geschützt: er hängt an der Passphrase (.beamenc), nicht an MSE.
+            settings.setInteger(
+                org.libtorrent4j.swig.settings_pack.int_types.out_enc_policy.swigValue(),
+                org.libtorrent4j.swig.settings_pack.enc_policy.pe_disabled.swigValue())
+            settings.setInteger(
+                org.libtorrent4j.swig.settings_pack.int_types.in_enc_policy.swigValue(),
+                org.libtorrent4j.swig.settings_pack.enc_policy.pe_disabled.swigValue())
+
+            // Relay-Rendezvous: Wer sich am Relay anmeldet, bekommt erst einen Handshake zurück, wenn
+            // die ZWEITE Seite auch da ist. Ohne langen Timeout verwirft libtorrent die wartende
+            // Verbindung nach ~15 s als „toten Peer". Hochsetzen → das Warten am Relay hält ~2 min,
+            // bis die andere Seite zuschaltet (CGNAT-Fallback ohne sekundengenaue Synchronisation).
+            settings.setInteger(
+                org.libtorrent4j.swig.settings_pack.int_types.peer_connect_timeout.swigValue(), 120)
+
             session.applySettings(settings)
             session.start()
 
-            BeamLog.i(TAG, "Session gestartet mit LSD/UPnP/NAT-PMP/DHT/ut_metadata")
+            BeamLog.i(TAG, "Session gestartet mit LSD/UPnP/NAT-PMP/DHT/ut_metadata (MSE aus)")
 
             Thread {
                 Thread.sleep(3000)
@@ -436,6 +453,41 @@ object TorrentManager {
     fun dhtNodes(): Long = if (session.isRunning) session.stats().dhtNodes() else -1L
 
     fun getAll(): List<TorrentEntry> = torrents.values.toList()
+
+    /**
+     * Beam-Relay-Station als festen Peer zuschalten (Fallback bei Timeout oder „Relay NOW!").
+     * Die App wählt das Relay direkt an (`connectPeer`) — kein Tracker/DHT nötig. BEIDE Enden müssen
+     * das tun, damit die Byte-Pipe sie per Infohash paaren kann. Liefert false, wenn kein Handle (noch).
+     */
+    /**
+     * Beam-Relay-Station zuschalten.
+     *  - [exclusive] = true (SENDER, „Relay NOW!"): „wenn Relay, dann richtig" — direkte Wege für DIESEN
+     *    Transfer abschalten (DHT/LSD/PEX aus, Tracker weg, bestehende Peers trennen) → nur noch Relay.
+     *    NUR EINMAL (idempotent), sonst killt jeder weitere Druck via clear_peers die frische Verbindung.
+     *  - [exclusive] = false (EMPFÄNGER, automatisch+still): NUR `connect_peer` aufs Relay als
+     *    Parallel-Lauscher — direkt/DHT/Tracker bleiben aktiv. Der Empfänger horcht „immer auch am Relay",
+     *    paart sich aber erst, wenn der Sender exklusiv zuschaltet.
+     */
+    fun engageRelay(infoHash: String, host: String, port: Int, exclusive: Boolean = true): Boolean {
+        val entry = torrents[infoHash.lowercase()] ?: return false
+        val h = entry.handle?.takeIf { it.isValid } ?: return false
+        return try {
+            if (exclusive && !entry.relayEngaged) {
+                h.setFlags(org.libtorrent4j.TorrentFlags.DISABLE_DHT)
+                h.setFlags(org.libtorrent4j.TorrentFlags.DISABLE_LSD)
+                h.setFlags(org.libtorrent4j.TorrentFlags.DISABLE_PEX)
+                h.replaceTrackers(emptyList())
+                h.swig().clear_peers()
+                entry.relayEngaged = true
+                BeamLog.i(TAG, "Relay EXKLUSIV (Sender): $host:$port für $infoHash")
+            }
+            h.swig().connect_peer(org.libtorrent4j.TcpEndpoint(host, port).swig())
+            true
+        } catch (e: Exception) {
+            BeamLog.e(TAG, "engageRelay fehlgeschlagen: ${e.message}")
+            false
+        }
+    }
     fun get(infoHash: String): TorrentEntry? = torrents[infoHash]
     fun activeCount(): Int = torrents.values.count { it.state == TorrentState.SEEDING }
     fun downloadingCount(): Int = torrents.values.count {

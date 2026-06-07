@@ -67,7 +67,21 @@ fun main(args: Array<String>) {
 private val BEAM_VERSION: String = System.getProperty("beam.version") ?: "dev"
 private val downloadDir = File(System.getProperty("user.home"), "Downloads/Beam").apply { mkdirs() }
 private val workDir = File(System.getProperty("java.io.tmpdir"), "beam-desktop").apply { mkdirs() }
-private fun trackers() = Trackers.parseTrackers(Trackers.DEFAULT_TRACKERS)
+// Editierbare, persistente Tracker-Liste (Datei `Downloads/Beam/trackers.txt`); Default = unsere Liste
+// (eigene Station ganz oben). Nutzer kann sie im UI bearbeiten / öffentliche strippen.
+private fun trackersFile() = File(downloadDir, "trackers.txt")
+private fun loadTrackerText(): String =
+    runCatching { trackersFile().takeIf { it.exists() }?.readText() }.getOrNull()
+        ?.takeIf { it.isNotBlank() } ?: Trackers.DEFAULT_TRACKERS
+private fun saveTrackerText(text: String) {
+    runCatching { trackersFile().also { it.parentFile?.mkdirs() }.writeText(text) }
+}
+private fun trackers() = Trackers.parseTrackers(loadTrackerText())
+
+// Beam-Relay-Station-Adresse: Betreiber-Konfig (nicht im UI editierbar). Default einkompiliert,
+// überschreibbar via Datei `Downloads/Beam/relay.conf` (eine Zeile `host` oder `host:port`).
+private fun relayEndpoint(): RelayConfig.Endpoint =
+    RelayConfig.parse(runCatching { File(downloadDir, "relay.conf").takeIf { it.exists() }?.readText() }.getOrNull())
 
 private val Blue = Color(0xFF2196F3)
 private val Green = Color(0xFF4CAF50)
@@ -79,8 +93,12 @@ private data class UiTransfer(
     val isDownload: Boolean,
     val statusText: String,
     val progress: Float,      // 0..1, oder -1 = unbestimmt/seeding
-    val showProgress: Boolean
+    val showProgress: Boolean,
+    val directBlocked: Boolean = false   // Gegenüber bekannt, aber keine direkte Verbindung → Relay anbieten
 )
+
+// Geduld, bevor „direkt blockiert" gemeldet wird (ab dem Moment, wo das Gegenüber bekannt wurde).
+private const val RELAY_HINT_MS = 25_000L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,6 +117,7 @@ private fun BeamApp(initialPaths: List<String>) {
     val backupTopFolder = remember { mutableMapOf<String, Set<String>>() }          // infoHash → entfernte Top-Ordner (leere Reste aufräumen)
     var lastBackupDir by remember { mutableStateOf(downloadDir) }                   // zuletzt gewählter Backup-Zielordner (gemerkt)
     val resolved = remember { mutableSetOf<String>() }                             // bereits nachbearbeitete Downloads
+    val peerSeenAt = remember { mutableMapOf<String, Long>() }                      // infoHash → wann Gegenüber zuerst bekannt (Grace-Timer)
     val scope = rememberCoroutineScope()
     var pendingSend by remember { mutableStateOf<List<File>>(emptyList()) }        // vorgemerkt, wartet auf BEAM!-Knopf
 
@@ -281,13 +300,31 @@ private fun BeamApp(initialPaths: List<String>) {
                         val prog = st?.progress() ?: 0f
                         val rate = if (e.isDownload) st?.downloadRate() ?: 0 else st?.uploadRate() ?: 0
                         val finished = st?.isFinished ?: false
+                        // „Direkt blockiert"-Erkennung: Gegenüber bekannt (listPeers>0), aber keine
+                        // Verbindung (numPeers==0) seit N s ab Auftauchen → Relay anbieten.
+                        val listPeers = st?.listPeers() ?: 0
+                        val nowMs = System.currentTimeMillis()
+                        if (listPeers > 0 && e.infoHash !in peerSeenAt) peerSeenAt[e.infoHash] = nowMs
+                        val blocked = !finished && peers == 0 && listPeers > 0 &&
+                            (peerSeenAt[e.infoHash]?.let { nowMs - it > RELAY_HINT_MS } ?: false)
+                        // EMPFÄNGER horcht „immer auch am Relay": laufender Download meldet sich
+                        // periodisch (Re-Dial vor dem 120-s-Timeout) als stiller Parallel-Lauscher an
+                        // der Station an (nicht-exklusiv → direkt bleibt aktiv). Paart sich erst, wenn
+                        // der SENDER per „Relay NOW!" exklusiv zuschaltet.
+                        if (e.isDownload && !finished && nowMs - e.lastRelayDial > 60_000L) {
+                            e.lastRelayDial = nowMs
+                            val ep = relayEndpoint()
+                            Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = false) }.start()
+                        }
                         UiTransfer(
                             infoHash = e.infoHash,
                             name = e.fileName,
                             isDownload = e.isDownload,
-                            statusText = statusText(e.isDownload, meta, finished, peers, rate, prog, e.trackerWorking),
+                            statusText = if (blocked) "⚠ Direct connection blocked — send via Beam-Relay?"
+                                         else statusText(e.isDownload, meta, finished, peers, rate, prog, e.trackerWorking),
                             progress = prog,
-                            showProgress = e.isDownload && !finished
+                            showProgress = e.isDownload && !finished,
+                            directBlocked = blocked
                         )
                     }
                 // Backup-Downloads: ALLE Dateien flach in den gewählten Ordner (User-Wunsch:
@@ -409,6 +446,32 @@ private fun BeamApp(initialPaths: List<String>) {
                         }
                     }
                 }
+                // Editierbare Tracker-Liste (ausklappbar). Unsere private Station steht ganz oben;
+                // zum reinen Privat-Test die öffentlichen Zeilen löschen und speichern.
+                var showTrackers by remember { mutableStateOf(false) }
+                var trackerText by remember { mutableStateOf(loadTrackerText()) }
+                TextButton(onClick = { showTrackers = !showTrackers }) {
+                    Text((if (showTrackers) "▾" else "▸") + "  🛰️  Trackers (advanced)")
+                }
+                if (showTrackers) {
+                    OutlinedTextField(
+                        value = trackerText,
+                        onValueChange = { trackerText = it },
+                        label = { Text("Tracker list — one URL per line (our private station is on top)") },
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.fillMaxWidth().height(150.dp)
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { saveTrackerText(trackerText); status = "Tracker list saved." }) {
+                            Text("Save")
+                        }
+                        OutlinedButton(onClick = {
+                            trackerText = Trackers.DEFAULT_TRACKERS
+                            saveTrackerText(trackerText); status = "Trackers reset to defaults."
+                        }) { Text("Reset to defaults") }
+                    }
+                }
+
                 // Pending files → here (after options) the .beam/.beamenc is created + seeded.
                 if (pendingSend.isNotEmpty()) {
                     Text(
@@ -478,6 +541,12 @@ private fun TransferCard(t: UiTransfer, beamPath: String?) {
                     }
                 }
                 TextButton(onClick = { Thread { TorrentManager.restartTransfer(t.infoHash, trackers()) }.start() }) { Text("Reconnect") }
+                val engage = { Thread { val ep = relayEndpoint(); TorrentManager.engageRelay(t.infoHash, ep.host, ep.port) }.start(); Unit }
+                if (t.directBlocked) {
+                    Button(onClick = engage) { Text("📡 Send via Relay") }   // hervorgehoben, wenn direkt blockiert
+                } else {
+                    TextButton(onClick = engage) { Text("📡 Relay NOW!") }
+                }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = { TorrentManager.stop(t.infoHash) }) { Text("Remove") }
             }

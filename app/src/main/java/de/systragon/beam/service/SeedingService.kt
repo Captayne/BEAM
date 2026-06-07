@@ -31,6 +31,7 @@ class SeedingService : Service() {
         const val ACTION_STOP        = "action_stop"
         const val ACTION_RETRY       = "action_retry"
         const val ACTION_RESTART     = "action_restart"
+        const val ACTION_RELAY       = "action_relay"
 
         const val EXTRA_TORRENT_PATH = "torrent_path"
         const val EXTRA_FILE_DIR     = "file_dir"
@@ -88,6 +89,7 @@ class SeedingService : Service() {
                 checkDownloads()
                 updateLocks()
                 maybeAdjustTransport()
+                maybeReceiverRelay()
                 TorrentManager.refreshTrackerStatus()
                 logConnections()
                 if (tick % 6 == 0) logTrackers()   // ~alle 30 s
@@ -111,6 +113,25 @@ class SeedingService : Service() {
         stuckSinceMs = 0L
         utpFallbackActive = false
         TorrentManager.setOutgoingUtpEnabled(false)
+    }
+
+    /**
+     * EMPFÄNGER horcht „immer auch am Relay": jeder laufende Download meldet sich periodisch (re-dial
+     * vor dem 120-s-Timeout) als stiller Parallel-Lauscher an der Station an (nicht-exklusiv → direkt
+     * bleibt aktiv). Er paart sich erst, wenn der SENDER per „Relay NOW!" exklusiv zuschaltet.
+     */
+    private fun maybeReceiverRelay() {
+        val now = System.currentTimeMillis()
+        val ep = de.systragon.beam.core.RelayConfig.parse(
+            runCatching { java.io.File(getExternalFilesDir(null), "relay.conf").takeIf { it.exists() }?.readText() }.getOrNull()
+        )
+        TorrentManager.getAll().forEach { e ->
+            val finished = e.handle?.takeIf { it.isValid }?.status()?.isFinished ?: false
+            if (e.isDownload && !finished && now - e.lastRelayDial > 60_000L) {
+                e.lastRelayDial = now
+                Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = false) }.start()
+            }
+        }
     }
 
     private fun maybeAdjustTransport() {
@@ -397,6 +418,19 @@ class SeedingService : Service() {
                 val hash = intent.getStringExtra(EXTRA_INFO_HASH) ?: return START_STICKY
                 // Blockierend (Hard-Restart bei Empfängern) → eigener Thread.
                 Thread { TorrentManager.restartTransfer(hash, loadTrackers()) }.start()
+            }
+
+            ACTION_RELAY -> {
+                // „Relay NOW!": die Beam-Relay-Station als festen Peer zuschalten (connectPeer). Adresse
+                // aus relay.conf (Betreiber-Konfig im App-files-Ordner) oder Default. Beide Enden müssen
+                // das tun, damit die Byte-Pipe sie paart.
+                val hash = intent.getStringExtra(EXTRA_INFO_HASH) ?: return START_STICKY
+                Thread {
+                    val ep = de.systragon.beam.core.RelayConfig.parse(
+                        runCatching { java.io.File(getExternalFilesDir(null), "relay.conf").takeIf { it.exists() }?.readText() }.getOrNull()
+                    )
+                    TorrentManager.engageRelay(hash, ep.host, ep.port)
+                }.start()
             }
         }
 

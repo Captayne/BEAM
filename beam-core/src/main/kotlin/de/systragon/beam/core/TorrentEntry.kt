@@ -32,6 +32,11 @@ data class TorrentEntry(
     var uploadedBytes: Long = 0L,
     var currentPeers: Int = 0,
     var uploadRate: Int = 0,
+    // Relay-Empfehlung: Gegenüber bekannt (listPeers>0), aber keine Verbindung (numPeers==0) seit N s.
+    var directBlocked: Boolean = false,
+    var peerSeenAt: Long = 0L,        // wann das Gegenüber zuerst bekannt wurde (Grace-Timer-Anker)
+    var relayEngaged: Boolean = false, // Relay-exklusiv schon umgeschaltet? (clear_peers nur EINMAL)
+    var lastRelayDial: Long = 0L,      // Empfänger: wann zuletzt am Relay angemeldet (periodisches Re-Dial)
     // --- Empfang (Download) ---
     var isDownload: Boolean = false,
     var progress: Float = 0f,         // 0..1

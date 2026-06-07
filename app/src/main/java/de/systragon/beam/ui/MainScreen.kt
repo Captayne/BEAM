@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Refresh
@@ -579,6 +580,10 @@ fun TransferScreen(
                         viewModel.restartTransfer(context, entry.infoHash)
                         Toast.makeText(context, "Restarting transfer…", Toast.LENGTH_SHORT).show()
                     },
+                    onRelayClick = {
+                        viewModel.engageRelay(context, entry.infoHash)
+                        Toast.makeText(context, "Relay engaged 📡", Toast.LENGTH_SHORT).show()
+                    },
                     onPlayClick = {
                         when (downloadCardAction(entry)) {
                             // Verschlüsselt + fehlgeschlagen → mit aktueller Passphrase erneut entschlüsseln
@@ -643,6 +648,7 @@ fun TorrentCard(
     onCopyClick: () -> Unit,
     onShareClick: () -> Unit,
     onStartOverClick: () -> Unit,
+    onRelayClick: () -> Unit,
     onPlayClick: () -> Unit,
     onThrowClick: () -> Unit,
     onDismissClick: () -> Unit
@@ -709,6 +715,17 @@ fun TorrentCard(
                 }
             }
 
+            // Relay-Empfehlung: Gegenüber bekannt, aber direkte Verbindung kommt nicht durch. Beide
+            // Nutzer sehen das ~gleichzeitig → beide tippen 📡 → Paarung an der Beam-Relaystation.
+            if (entry.directBlocked) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "⚠ Direct connection blocked — tap 📡 to send via the Beam-Relay-Station",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
             // Button-Reihe: links Link kopieren (+ Play beim Empfänger),
             // rechts Mülltonne (alles löschen) und ✕ (nur Karte entfernen)
             Spacer(modifier = Modifier.height(8.dp))
@@ -725,6 +742,11 @@ fun TorrentCard(
                 }
                 FilledTonalIconButton(onClick = onStartOverClick) {
                     Icon(Icons.Default.Refresh, contentDescription = "Start over")
+                }
+                // „Relay NOW!": Beam-Relay-Station sofort zuschalten (Fallback ohne Warten). Beide
+                // Enden müssen drücken, damit die Byte-Pipe paart.
+                FilledTonalIconButton(onClick = onRelayClick) {
+                    Icon(Icons.Default.CellTower, contentDescription = "Relay NOW!")
                 }
                 if (entry.isDownload) {
                     // Kontextabhängig: ⏳ solange nichts abspielbar ist, ▶ für (streambares/fertiges)
