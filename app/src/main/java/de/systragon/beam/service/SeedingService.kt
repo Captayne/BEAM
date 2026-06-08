@@ -132,7 +132,9 @@ class SeedingService : Service() {
             val st = e.handle?.takeIf { it.isValid }?.status() ?: return@forEach
             if (st.isFinished) return@forEach
             val wantRelay = e.isDownload || e.relayEngaged
-            if (wantRelay && st.numPeers() == 0 && now - e.lastRelayDial > 12_000L) {
+            // Re-Dial NUR, wenn das Relay noch nicht als Peer hängt (Anti-Churn) und seit dem letzten
+            // Versuch genug Zeit war, dass die Röhre paaren + Handshake/Metadaten austauschen konnte.
+            if (wantRelay && !TorrentManager.isRelayConnected(e.infoHash, ep.host) && now - e.lastRelayDial > 15_000L) {
                 e.lastRelayDial = now
                 val exclusive = e.relayEngaged   // Sender bleibt exklusiv; Empfänger non-exklusiv
                 Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = exclusive) }.start()

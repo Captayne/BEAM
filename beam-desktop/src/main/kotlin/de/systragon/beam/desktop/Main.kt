@@ -315,7 +315,9 @@ private fun BeamApp(initialPaths: List<String>) {
                         // alle ~12 s re-dialen, solange KEIN Peer verbunden ist, damit sich die Fenster
                         // beider Seiten überlappen. Empfänger (Download) lauscht IMMER (nicht-exklusiv);
                         // Sender mit gedrücktem „Relay NOW" (relayEngaged) hält seine Relay-Verbindung frisch.
-                        if ((e.isDownload || e.relayEngaged) && !finished && peers == 0 && nowMs - e.lastRelayDial > 12_000L) {
+                        if ((e.isDownload || e.relayEngaged) && !finished &&
+                            !TorrentManager.isRelayConnected(e.infoHash, relayEndpoint().host) &&
+                            nowMs - e.lastRelayDial > 15_000L) {
                             e.lastRelayDial = nowMs
                             val ep = relayEndpoint()
                             val excl = e.relayEngaged

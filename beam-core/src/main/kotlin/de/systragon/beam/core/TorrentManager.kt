@@ -513,6 +513,18 @@ object TorrentManager {
             false
         }
     }
+    /**
+     * Ist die Relay-Station ([host]) gerade als Peer dieses Torrents verbunden (oder im Handshake)?
+     * → Anti-Churn fürs Re-Dial: ist die Röhre schon da, NICHT erneut `connect_peer` aufrufen, sonst
+     * zerschießt libtorrents Ein-Verbindung-pro-Endpunkt die gerade gepaarte Relay-Verbindung.
+     */
+    fun isRelayConnected(infoHash: String, host: String): Boolean {
+        val h = torrents[infoHash.lowercase()]?.handle?.takeIf { it.isValid } ?: return false
+        return try {
+            h.peerInfo().any { it.ip().toString().contains(host) }
+        } catch (_: Exception) { false }
+    }
+
     fun get(infoHash: String): TorrentEntry? = torrents[infoHash]
     fun activeCount(): Int = torrents.values.count { it.state == TorrentState.SEEDING }
     fun downloadingCount(): Int = torrents.values.count {
