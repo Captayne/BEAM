@@ -57,14 +57,33 @@ fun main(args: Array<String>) {
     application {
         // Gleiches Icon wie die Android-App (liegt als Classpath-Ressource beam.png).
         val beamIcon = remember { useResource("beam.png") { BitmapPainter(loadImageBitmap(it)) } }
-        Window(onCloseRequest = ::exitApplication, title = "Beam $BEAM_VERSION", icon = beamIcon) {
-            BeamApp(initialPaths)
+        // Kompakte „kleine, aber leistungsstarke" Box: moderate Standardgröße statt riesigem Fenster
+        // (auf 4K-Monitoren sonst übergroß). Bleibt frei skalierbar.
+        val winState = androidx.compose.ui.window.rememberWindowState(
+            width = 500.dp, height = 840.dp,
+            position = androidx.compose.ui.window.WindowPosition(androidx.compose.ui.Alignment.Center)
+        )
+        Window(onCloseRequest = ::exitApplication, state = winState, title = "Beam $BEAM_VERSION", icon = beamIcon) {
+            // Kompaktere UI: Density runterskalieren → Schrift UND Abstände gleichmäßig kleiner.
+            // Compose erbt sonst die (auf großen 4K-Monitoren oft hohe) Windows-Skalierung. Faktor
+            // UI_SCALE justierbar (1.0 = Windows-Standard; kleiner = kompakter).
+            val base = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides
+                    androidx.compose.ui.unit.Density(base.density * UI_SCALE, base.fontScale)
+            ) {
+                BeamApp(initialPaths)
+            }
         }
     }
 }
 
 /** Versionsnummer (vom Build via -Dbeam.version gesetzt; sonst "dev"). Für die Titelzeile. */
 private val BEAM_VERSION: String = System.getProperty("beam.version") ?: "dev"
+
+/** Globaler UI-Skalierungsfaktor (auf die geerbte Windows-Density). <1 = kompakter (Schrift+Abstände).
+ *  Für große, hoch skalierte 4K-Monitore. Hier zentral justierbar. */
+private const val UI_SCALE = 0.8f
 private val downloadDir = File(System.getProperty("user.home"), "Downloads/Beam").apply { mkdirs() }
 private val workDir = File(System.getProperty("java.io.tmpdir"), "beam-desktop").apply { mkdirs() }
 // Editierbare, persistente Tracker-Liste (Datei `Downloads/Beam/trackers.txt`); Default = unsere Liste
