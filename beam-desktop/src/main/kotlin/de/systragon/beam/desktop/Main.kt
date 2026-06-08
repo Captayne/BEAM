@@ -111,6 +111,7 @@ private fun BeamApp(initialPaths: List<String>) {
     var encryptOn by remember { mutableStateOf(false) }                            // Senden verschlüsseln?
     var compressionLevel by remember { mutableStateOf(VideoCompressor.CompressionLevel.ORIGINAL) } // Video-Qualität
     var backupMode by remember { mutableStateOf(false) }                           // .beam als Backup taggen → Empfänger wählt Zielordner
+    var disableIpv6 by remember { mutableStateOf(false) }                          // IPv6 aus (IPv4-only) → erzwingt Relay statt IPv6-Direktpfad (Test)
     val saveDirs = remember { mutableMapOf<String, File>() }                        // infoHash → Zielordner (Backup wählbar)
     val backupHashes = remember { mutableSetOf<String>() }                          // infoHash der Backup-Empfänge (Top-Ordner flach auflösen)
     val renamedBackup = remember { mutableSetOf<String>() }                         // Backup-Downloads, schon flach umbenannt
@@ -427,6 +428,16 @@ private fun BeamApp(initialPaths: List<String>) {
                     enabled = !backupMode,
                     modifier = Modifier.fillMaxWidth()
                 )
+                // Testschalter: IPv6 aus (IPv4-only). Erzwingt, dass eine Übertragung übers RELAY geht,
+                // statt heimlich über einen direkten IPv6-Pfad (Mobilfunk-IPv6) — für den sauberen
+                // Relay-Beweis. Default AUS (= IPv6 an, Normalbetrieb).
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = disableIpv6, onCheckedChange = {
+                        disableIpv6 = it
+                        Thread { TorrentManager.setIpv6Enabled(!it) }.start()
+                    })
+                    Text("Disable IPv6 (IPv4-only — forces relay, for testing)")
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "Video quality:",
@@ -545,11 +556,15 @@ private fun TransferCard(t: UiTransfer, beamPath: String?) {
                     }
                 }
                 TextButton(onClick = { Thread { TorrentManager.restartTransfer(t.infoHash, trackers()) }.start() }) { Text("Reconnect") }
-                val engage = { Thread { val ep = relayEndpoint(); TorrentManager.engageRelay(t.infoHash, ep.host, ep.port) }.start(); Unit }
-                if (t.directBlocked) {
-                    Button(onClick = engage) { Text("📡 Send via Relay") }   // hervorgehoben, wenn direkt blockiert
-                } else {
-                    TextButton(onClick = engage) { Text("📡 Relay NOW!") }
+                // Relay-Button NUR beim SENDER. Der Empfänger lauscht ohnehin automatisch am Relay
+                // (Re-Dial in der Poll-Schleife), sobald er den Hash kennt → kein Button (User-Entscheid).
+                if (!t.isDownload) {
+                    val engage = { Thread { val ep = relayEndpoint(); TorrentManager.engageRelay(t.infoHash, ep.host, ep.port) }.start(); Unit }
+                    if (t.directBlocked) {
+                        Button(onClick = engage) { Text("📡 Send via Relay") }   // hervorgehoben, wenn direkt blockiert
+                    } else {
+                        TextButton(onClick = engage) { Text("📡 Relay NOW!") }
+                    }
                 }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = { TorrentManager.stop(t.infoHash) }) { Text("Remove") }

@@ -403,6 +403,27 @@ object TorrentManager {
         }
     }
 
+    /**
+     * IPv6 zur Laufzeit an/aus (steuert `listen_interfaces`). IPv4-only entfernt den IPv6-Listen-Socket
+     * → libtorrent baut dann auch KEINE ausgehenden IPv6-Verbindungen mehr auf (es fehlt die v6-Quelle).
+     * Zweck: erzwingen, dass eine Übertragung WIRKLICH übers Relay geht, statt heimlich über einen
+     * direkten IPv6-Pfad (Mobilfunk-IPv6) — sauberer Relay-Test. Sockets neu öffnen, damit es sofort greift.
+     */
+    fun setIpv6Enabled(enabled: Boolean) {
+        if (!session.isRunning) return
+        try {
+            val s = org.libtorrent4j.SettingsPack()
+            s.setString(
+                org.libtorrent4j.swig.settings_pack.string_types.listen_interfaces.swigValue(),
+                if (enabled) "0.0.0.0:6881,[::]:6881" else "0.0.0.0:6881")
+            session.applySettings(s)
+            session.reopenNetworkSockets()
+            BeamLog.i(TAG, "IPv6 ${if (enabled) "AN (v4+v6)" else "AUS — nur IPv4 (Relay-Testmodus)"}")
+        } catch (e: Exception) {
+            BeamLog.w(TAG, "setIpv6Enabled Fehler: ${e.message}")
+        }
+    }
+
     fun pause(infoHash: String) {
         torrents[infoHash]?.let { entry ->
             if (entry.state == TorrentState.SEEDING) {
