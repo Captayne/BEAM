@@ -40,6 +40,12 @@ object SpliceTest {
         val sha1 = ti.infoHashes().best
         log("Torrent: ${ti.infoHash()}  (${ti.totalSize()} B, ${ti.numPieces()} pieces)")
 
+        // Hash EINMAL beim Gate-Tracker anmelden (reiner HTTP-Announce), damit die Byte-Pipe (Gate
+        // `knows(hash)`) nicht abweist — OHNE libtorrent einen Tracker zu geben, also weiterhin KEIN
+        // Direktpfad zwischen den beiden Test-Sessions. So bleibt's ein reiner Relay-Datenpfad-Test
+        // gegen die Produktions-Konfig (Gate AN).
+        registerWithGate(rHost, sha1.toString())
+
         // --- Seeder ---
         val seeder = SessionManager(); seeder.start(); seeder.applySettings(testSettings())
         seeder.download(ti, seedDir, null, null, null, TorrentFlags.SEED_MODE)
@@ -66,6 +72,20 @@ object SpliceTest {
         }
         log("=== ❌ TIMEOUT — keine Datei durch ===")
         seeder.stop(); leecher.stop()
+    }
+
+    /** Reiner HTTP-Announce an den Beam-Gate-Tracker (:80), nur um `knows(hash)` zu erfüllen.
+     *  Token fest (Test-Harness). info_hash = 20 Rohbytes, prozent-kodiert. */
+    private fun registerWithGate(host: String, infoHashHex: String) {
+        try {
+            val enc = infoHashHex.chunked(2).joinToString("") { "%$it" }   // 40 Hex → %XX%XX… (20 Rohbytes)
+            val url = java.net.URL("http://$host/bs7Kf3R9xLmQ2v/announce?info_hash=$enc&port=6881&uploaded=0&downloaded=0&left=0&event=started")
+            (url.openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 5000; readTimeout = 5000
+                inputStream.use { it.readBytes() }
+            }
+            log("Gate-Announce gesendet → Pipe sollte jetzt durchlassen")
+        } catch (e: Exception) { log("Gate-Announce fehlgeschlagen: ${e.message}") }
     }
 
     private fun relayExclusive(h: TorrentHandle, host: String, port: Int) {

@@ -132,12 +132,22 @@ class SeedingService : Service() {
             val st = e.handle?.takeIf { it.isValid }?.status() ?: return@forEach
             if (st.isFinished) return@forEach
             val wantRelay = e.isDownload || e.relayEngaged
-            // Re-Dial NUR, wenn das Relay noch nicht als Peer hängt (Anti-Churn) und seit dem letzten
-            // Versuch genug Zeit war, dass die Röhre paaren + Handshake/Metadaten austauschen konnte.
-            if (wantRelay && !TorrentManager.isRelayConnected(e.infoHash, ep.host) && now - e.lastRelayDial > 15_000L) {
+            if (!wantRelay) return@forEach
+            // A2: hängender Empfänger (kein Datenfluss seit ~20 s) eskaliert EINMAL auf relay-EXKLUSIV —
+            // exakt die Konfig, in der der SpliceTest 5 MB durchschob (clear_peers + DHT/LSD/PEX aus, nur
+            // Station-Tracker). Räumt tote Direktversuche/DHT-Lärm weg, die den Pipe-Handshake blockieren.
+            // Greift NUR bei echtem Hänger (downloadRate==0) → schnelles Direkt/LAN bleibt unberührt.
+            val stuckReceiver = e.isDownload && st.downloadRate() == 0 && now - e.createdAt > 20_000L
+            if (stuckReceiver && !e.relayEngaged) {
                 e.lastRelayDial = now
-                val exclusive = e.relayEngaged   // Sender bleibt exklusiv; Empfänger non-exklusiv
-                Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = exclusive) }.start()
+                Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = true) }.start()
+                return@forEach
+            }
+            // Re-Dial (Anti-Churn): nur wenn das Relay noch nicht als Peer hängt und seit dem letzten
+            // Versuch genug Zeit war, dass die Röhre paaren + Handshake/Metadaten austauschen konnte.
+            if (!TorrentManager.isRelayConnected(e.infoHash, ep.host) && now - e.lastRelayDial > 15_000L) {
+                e.lastRelayDial = now
+                Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = e.relayEngaged) }.start()
             }
         }
     }

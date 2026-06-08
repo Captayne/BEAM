@@ -315,13 +315,20 @@ private fun BeamApp(initialPaths: List<String>) {
                         // alle ~12 s re-dialen, solange KEIN Peer verbunden ist, damit sich die Fenster
                         // beider Seiten überlappen. Empfänger (Download) lauscht IMMER (nicht-exklusiv);
                         // Sender mit gedrücktem „Relay NOW" (relayEngaged) hält seine Relay-Verbindung frisch.
-                        if ((e.isDownload || e.relayEngaged) && !finished &&
-                            !TorrentManager.isRelayConnected(e.infoHash, relayEndpoint().host) &&
-                            nowMs - e.lastRelayDial > 15_000L) {
-                            e.lastRelayDial = nowMs
+                        if ((e.isDownload || e.relayEngaged) && !finished) {
                             val ep = relayEndpoint()
-                            val excl = e.relayEngaged
-                            Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = excl) }.start()
+                            // A2: hängender Empfänger (kein Datenfluss seit ~20 s) eskaliert EINMAL auf
+                            // relay-EXKLUSIV — exakt die SpliceTest-Konfig (clear_peers + DHT/LSD/PEX aus,
+                            // nur Station-Tracker). Greift NUR bei echtem Hänger (rate==0) → Direkt/LAN bleibt.
+                            val stuckReceiver = e.isDownload && rate == 0 && nowMs - e.createdAt > 20_000L
+                            if (stuckReceiver && !e.relayEngaged) {
+                                e.lastRelayDial = nowMs
+                                Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = true) }.start()
+                            } else if (!TorrentManager.isRelayConnected(e.infoHash, ep.host) &&
+                                       nowMs - e.lastRelayDial > 15_000L) {
+                                e.lastRelayDial = nowMs
+                                Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = e.relayEngaged) }.start()
+                            }
                         }
                         UiTransfer(
                             infoHash = e.infoHash,
