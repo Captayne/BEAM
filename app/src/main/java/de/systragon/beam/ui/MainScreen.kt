@@ -743,10 +743,13 @@ fun TorrentCard(
                 FilledTonalIconButton(onClick = onStartOverClick) {
                     Icon(Icons.Default.Refresh, contentDescription = "Start over")
                 }
-                // „Relay NOW!": Beam-Relay-Station sofort zuschalten (Fallback ohne Warten). Beide
-                // Enden müssen drücken, damit die Byte-Pipe paart.
-                FilledTonalIconButton(onClick = onRelayClick) {
-                    Icon(Icons.Default.CellTower, contentDescription = "Relay NOW!")
+                // „Relay NOW!": NUR beim SENDER (Upload). Der Empfänger lauscht ohnehin automatisch am
+                // Relay und eskaliert per A2 selbst → dort KEIN Button (User-Entscheid). Beim Sender
+                // müssen beide Enden zuschalten, damit die Byte-Pipe paart.
+                if (!entry.isDownload) {
+                    FilledTonalIconButton(onClick = onRelayClick) {
+                        Icon(Icons.Default.CellTower, contentDescription = "Relay NOW!")
+                    }
                 }
                 if (entry.isDownload) {
                     // Kontextabhängig: ⏳ solange nichts abspielbar ist, ▶ für (streambares/fertiges)
