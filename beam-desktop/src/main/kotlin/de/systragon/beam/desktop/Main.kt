@@ -305,16 +305,20 @@ private fun BeamApp(initialPaths: List<String>) {
                         val listPeers = st?.listPeers() ?: 0
                         val nowMs = System.currentTimeMillis()
                         if (listPeers > 0 && e.infoHash !in peerSeenAt) peerSeenAt[e.infoHash] = nowMs
-                        val blocked = !finished && peers == 0 && listPeers > 0 &&
+                        // NUR der SENDER (Seeding) entscheidet übers Relay. Der EMPFÄNGER lauscht ohnehin
+                        // automatisch am Relay (s. Re-Dial unten) → bei ihm KEIN Button/Hinweis.
+                        val blocked = !e.isDownload && !finished && peers == 0 && listPeers > 0 &&
                             (peerSeenAt[e.infoHash]?.let { nowMs - it > RELAY_HINT_MS } ?: false)
-                        // EMPFÄNGER horcht „immer auch am Relay": laufender Download meldet sich
-                        // periodisch (Re-Dial vor dem 120-s-Timeout) als stiller Parallel-Lauscher an
-                        // der Station an (nicht-exklusiv → direkt bleibt aktiv). Paart sich erst, wenn
-                        // der SENDER per „Relay NOW!" exklusiv zuschaltet.
-                        if (e.isDownload && !finished && nowMs - e.lastRelayDial > 60_000L) {
+                        // Relay-Rendezvous frisch halten: wer allein am Relay ankommt, dessen libtorrent
+                        // bricht den Handshake nach ~15 s ab (Relay bleibt stumm bis BEIDE da sind). Darum
+                        // alle ~12 s re-dialen, solange KEIN Peer verbunden ist, damit sich die Fenster
+                        // beider Seiten überlappen. Empfänger (Download) lauscht IMMER (nicht-exklusiv);
+                        // Sender mit gedrücktem „Relay NOW" (relayEngaged) hält seine Relay-Verbindung frisch.
+                        if ((e.isDownload || e.relayEngaged) && !finished && peers == 0 && nowMs - e.lastRelayDial > 12_000L) {
                             e.lastRelayDial = nowMs
                             val ep = relayEndpoint()
-                            Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = false) }.start()
+                            val excl = e.relayEngaged
+                            Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = excl) }.start()
                         }
                         UiTransfer(
                             infoHash = e.infoHash,

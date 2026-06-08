@@ -89,7 +89,7 @@ class SeedingService : Service() {
                 checkDownloads()
                 updateLocks()
                 maybeAdjustTransport()
-                maybeReceiverRelay()
+                maybeRelayRedial()
                 TorrentManager.refreshTrackerStatus()
                 logConnections()
                 if (tick % 6 == 0) logTrackers()   // ~alle 30 s
@@ -116,20 +116,26 @@ class SeedingService : Service() {
     }
 
     /**
-     * EMPFÄNGER horcht „immer auch am Relay": jeder laufende Download meldet sich periodisch (re-dial
-     * vor dem 120-s-Timeout) als stiller Parallel-Lauscher an der Station an (nicht-exklusiv → direkt
-     * bleibt aktiv). Er paart sich erst, wenn der SENDER per „Relay NOW!" exklusiv zuschaltet.
+     * Relay-Rendezvous frisch halten. Problem: wer allein am Relay ankommt, dessen libtorrent bricht den
+     * Handshake nach ~15 s ab (das Relay bleibt stumm, bis BEIDE da sind). Damit sich die kurzen Fenster
+     * beider Seiten überlappen, re-dialen wir alle ~12 s, solange KEIN Peer verbunden ist:
+     *  - EMPFÄNGER (Download) horcht IMMER am Relay (nicht-exklusiv → direkt/DHT/Tracker bleiben aktiv).
+     *  - SENDER, der „Relay NOW" gedrückt hat (relayEngaged), hält seine exklusive Relay-Verbindung frisch.
+     * Sobald ein Peer steht (numPeers>0), läuft's → kein Re-Dial mehr.
      */
-    private fun maybeReceiverRelay() {
+    private fun maybeRelayRedial() {
         val now = System.currentTimeMillis()
         val ep = de.systragon.beam.core.RelayConfig.parse(
             runCatching { java.io.File(getExternalFilesDir(null), "relay.conf").takeIf { it.exists() }?.readText() }.getOrNull()
         )
         TorrentManager.getAll().forEach { e ->
-            val finished = e.handle?.takeIf { it.isValid }?.status()?.isFinished ?: false
-            if (e.isDownload && !finished && now - e.lastRelayDial > 60_000L) {
+            val st = e.handle?.takeIf { it.isValid }?.status() ?: return@forEach
+            if (st.isFinished) return@forEach
+            val wantRelay = e.isDownload || e.relayEngaged
+            if (wantRelay && st.numPeers() == 0 && now - e.lastRelayDial > 12_000L) {
                 e.lastRelayDial = now
-                Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = false) }.start()
+                val exclusive = e.relayEngaged   // Sender bleibt exklusiv; Empfänger non-exklusiv
+                Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = exclusive) }.start()
             }
         }
     }

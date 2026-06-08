@@ -323,11 +323,13 @@ class TorrentViewModel(application: Application) : AndroidViewModel(application)
                     val handle = entry.handle ?: return@forEach
                     if (!handle.isValid) return@forEach
                     val status = handle.status()
-                    // „Direkt blockiert"-Erkennung für die Relay-Empfehlung (Senden UND Empfangen):
+                    // „Direkt blockiert"-Erkennung für die Relay-Empfehlung — NUR beim SENDER:
                     // Gegenüber bekannt (listPeers>0), aber keine Verbindung (numPeers==0) seit N s.
+                    // Der EMPFÄNGER lauscht ohnehin automatisch am Relay (Re-Dial im SeedingService) →
+                    // bei ihm KEIN Button/Hinweis (User-Entscheid: nur der Sender entscheidet).
                     val nowMs = System.currentTimeMillis()
                     if (status.listPeers() > 0 && entry.peerSeenAt == 0L) entry.peerSeenAt = nowMs
-                    entry.directBlocked = status.numPeers() == 0 && status.listPeers() > 0 &&
+                    entry.directBlocked = !entry.isDownload && status.numPeers() == 0 && status.listPeers() > 0 &&
                         entry.peerSeenAt > 0L && nowMs - entry.peerSeenAt > 25_000L &&  // ~Geduld; später konfigurierbar
                         entry.state != TorrentState.COMPLETED
                     when (entry.state) {

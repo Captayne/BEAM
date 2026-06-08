@@ -476,10 +476,14 @@ object TorrentManager {
                 h.setFlags(org.libtorrent4j.TorrentFlags.DISABLE_DHT)
                 h.setFlags(org.libtorrent4j.TorrentFlags.DISABLE_LSD)
                 h.setFlags(org.libtorrent4j.TorrentFlags.DISABLE_PEX)
-                h.replaceTrackers(emptyList())
+                // WICHTIG: NUR den Beam-Station-Tracker behalten (öffentliche raus). Sonst meldet der
+                // Sender den Hash nicht mehr an → das Relay-Gate (`knows(hash)`) kennt ihn nicht mehr →
+                // die Byte-Pipe WEIST AB. Mit angemeldetem Hash bleibt das Gate zufrieden.
+                h.replaceTrackers(listOf(AnnounceEntry(Trackers.BEAM_STATION_TRACKER)))
                 h.swig().clear_peers()
+                try { h.forceReannounce() } catch (_: Exception) {}   // sofort beim Station-Tracker melden
                 entry.relayEngaged = true
-                BeamLog.i(TAG, "Relay EXKLUSIV (Sender): $host:$port für $infoHash")
+                BeamLog.i(TAG, "Relay EXKLUSIV (Sender): $host:$port für $infoHash (Station-Tracker behalten)")
             }
             h.swig().connect_peer(org.libtorrent4j.TcpEndpoint(host, port).swig())
             true
