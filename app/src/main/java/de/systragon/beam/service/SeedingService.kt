@@ -153,6 +153,23 @@ class SeedingService : Service() {
     }
 
     private fun maybeAdjustTransport() {
+        // WICHTIG: Das Beam-Relay ist eine reine TCP-Röhre. Sobald das Relay im Spiel ist (jeder
+        // laufende Download lauscht dort, oder ein Sender hat „Relay NOW" gedrückt), darf der µTP-
+        // Fallback NICHT greifen — sonst läuft die Relay-Verbindung über µTP (UDP), die TCP-Pipe kann
+        // sie nicht annehmen → 0 Bytes. Das Relay ist der bessere Fallback als µTP-direkt → µTP AUS.
+        val relayInPlay = TorrentManager.getAll().any { e ->
+            val fin = e.handle?.takeIf { it.isValid }?.status()?.isFinished ?: true
+            !fin && (e.isDownload || e.relayEngaged)
+        }
+        if (relayInPlay) {
+            stuckSinceMs = 0L
+            if (utpFallbackActive) {
+                Log.i("SeedingService", "Relay im Spiel → ausgehendes µTP AUS (Relay ist TCP-only)")
+                TorrentManager.setOutgoingUtpEnabled(false)
+                utpFallbackActive = false
+            }
+            return
+        }
         val needyNoPeer = TorrentManager.getAll().any { e ->
             e.isDownload &&
                 (e.state == TorrentState.FETCHING_METADATA || e.state == TorrentState.DOWNLOADING) &&
