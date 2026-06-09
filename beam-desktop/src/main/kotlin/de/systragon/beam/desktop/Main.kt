@@ -413,11 +413,31 @@ private fun BeamApp(initialPaths: List<String>) {
         }
     }
 
+    // Kurz-Hilfe (aus Ressource help.md), als Dialog über den „❓ Help"-Knopf.
+    val helpText = remember { runCatching { useResource("help.md") { it.readBytes().decodeToString() } }.getOrDefault("Help file not found.") }
+    var showHelp by remember { mutableStateOf(false) }
+
     MaterialTheme(colorScheme = scheme) {
+        if (showHelp) {
+            AlertDialog(
+                onDismissRequest = { showHelp = false },
+                confirmButton = { TextButton(onClick = { showHelp = false }) { Text("Close") } },
+                title = { Text("Beam! — Help") },
+                text = {
+                    Box(Modifier.heightIn(max = 560.dp)) {
+                        Text(helpText, modifier = Modifier.verticalScroll(rememberScrollState()),
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            )
+        }
         Scaffold(
             topBar = {
                 TopAppBar(
                     title = { Text("Beam!   v$BEAM_VERSION", fontWeight = FontWeight.Bold) },
+                    actions = {
+                        TextButton(onClick = { showHelp = true }) { Text("❓ Help", color = Color.White) }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         titleContentColor = Color.White
