@@ -687,13 +687,17 @@ class TorrentViewModel(application: Application) : AndroidViewModel(application)
                 // App-interne Temp-/Torrent-Dateien immer aufräumen (kein Müll).
                 if (it.cachedFile.exists()) it.cachedFile.delete()
                 it.torrentFile?.let { tf -> if (tf.exists()) tf.delete() }
-                // Nur beim „Throw" auch die bereits in Galerie/Downloads gespeicherte Datei.
+                // Nur beim „Throw": ALLE bereits gespeicherten Dateien löschen (Bündel = viele URIs,
+                // nicht nur die repräsentative). savedUri als Fallback für ältere Einträge.
                 if (deleteSaved) {
-                    it.savedUri?.let { uriStr ->
+                    val uris = (it.savedUris + listOfNotNull(it.savedUri)).distinct()
+                    var deleted = 0
+                    uris.forEach { uriStr ->
                         try {
-                            context.contentResolver.delete(Uri.parse(uriStr), null, null)
+                            deleted += context.contentResolver.delete(Uri.parse(uriStr), null, null)
                         } catch (_: Exception) {}
                     }
+                    Log.i("TorrentViewModel", "Throw: $deleted/${uris.size} gespeicherte Dateien gelöscht")
                 }
             }
             _torrents.value = TorrentManager.getAll()

@@ -42,7 +42,8 @@ data class TorrentEntry(
     var progress: Float = 0f,         // 0..1
     var downloadedBytes: Long = 0L,
     var downloadRate: Int = 0,
-    var savedUri: String? = null,     // gesetzt nach erfolgreichem Publish (für „Öffnen")
+    var savedUri: String? = null,     // repräsentative URI (für „Öffnen"/Galerie)
+    val savedUris: MutableList<String> = mutableListOf(),  // ALLE gespeicherten URIs (Bündel) → Mülltonne löscht alle
     var isEncrypted: Boolean = false, // E2E-verschlüsselte Übertragung (.beamenc)
     var streamReady: Boolean = false, // Video: erste + letzte Blöcke da → streambar
     var mediaOnly: Boolean = false,   // empfangene Datei(en) sind ausschließlich Bild/Video → Galerie öffnen

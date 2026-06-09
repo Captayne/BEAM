@@ -158,9 +158,10 @@ private fun BeamApp(initialPaths: List<String>) {
                     status = "Building chronology…"
                     expandChronologyPc(valid).also { status = "Chronology: ${it.size} files between oldest and newest" }
                 } else valid
-                // Optionally compress videos before sending (like Android: only videos, only if a
-                // level != Original is chosen; on error the original is sent). Off in Chronology mode.
-                val level = if (backupMode) VideoCompressor.CompressionLevel.ORIGINAL else compressionLevel
+                // Optionally compress videos before sending (only videos, only if a level != Original is
+                // chosen; on error the original is sent). Auch in Chronologie erlaubt: VIDEOS werden in
+                // Temp-Dateien (workDir) komprimiert (gepuffert), Fotos bleiben 1:1. Default = ORIGINAL.
+                val level = compressionLevel
                 val prepared: List<File> = if (level == VideoCompressor.CompressionLevel.ORIGINAL) sourceFiles
                     else sourceFiles.map { f ->
                         if (!VideoCompressor.isVideo(f)) return@map f
@@ -465,7 +466,7 @@ private fun BeamApp(initialPaths: List<String>) {
                     Spacer(Modifier.width(8.dp))
                     var menuCompress by remember { mutableStateOf(false) }
                     Box {
-                        OutlinedButton(onClick = { menuCompress = true }, enabled = !backupMode) {
+                        OutlinedButton(onClick = { menuCompress = true }) {   // auch in Chronologie: Videos komprimierbar
                             Text(if (compressionLevel == VideoCompressor.CompressionLevel.ORIGINAL) "Original" else compressionLevel.tag)
                             Text("  ▾")
                         }

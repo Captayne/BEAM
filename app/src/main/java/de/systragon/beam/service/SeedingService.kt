@@ -590,7 +590,7 @@ class SeedingService : Service() {
                         val isMedia = pubStr.contains("/images/") || pubStr.contains("/video/")
                         if (pub != null && !isMedia) anyNonMedia = true
                         if (isMedia) { lastMediaUri = pubStr; lastMediaMime = MediaStoreSaver.guessMime(pn) }
-                        if (pub != null) savedCount++
+                        if (pub != null) { savedCount++; entry.savedUris.add(pubStr) }   // ALLE URIs → Mülltonne
                         if (pf != f && pf.exists()) pf.delete()
                     }
                     entry.isEncrypted = anyEncrypted
@@ -639,6 +639,7 @@ class SeedingService : Service() {
                 if (entry.mediaOnly) entry.galleryMime = singleMime
                 if (uri != null) {
                     entry.savedUri = uri.toString()
+                    entry.savedUris.add(uri.toString())   // auch Einzeldatei → Mülltonne löscht sie
                     entry.state = TorrentState.COMPLETED
                     entry.progress = 1f
                     // Entschlüsseltes Temp entfernen; den .beamenc-Container räumt stopTorrent.
