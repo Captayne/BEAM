@@ -69,6 +69,7 @@ import androidx.compose.ui.window.DialogProperties
 fun MainScreen(
     viewModel: TorrentViewModel,
     onShareApp: () -> Unit = {},
+    onSharePcApp: () -> Unit = {},
     onBeamIt: () -> Unit = {},
     onImportBeam: () -> Unit = {},
     onRequestFolderAccess: () -> Unit = {},
@@ -149,7 +150,7 @@ fun MainScreen(
                         onChronologyToggled = onChronologyToggled,
                         onRequestAllFiles = onRequestAllFiles
                     )
-                    1 -> SettingsScreen(viewModel, onShareApp)
+                    1 -> SettingsScreen(viewModel, onShareApp, onSharePcApp)
                 }
             }
         }
@@ -843,7 +844,7 @@ fun StateIndicator(state: TorrentState) {
 }
 
 @Composable
-fun SettingsScreen(viewModel: TorrentViewModel, onShareApp: () -> Unit = {}) {
+fun SettingsScreen(viewModel: TorrentViewModel, onShareApp: () -> Unit = {}, onSharePcApp: () -> Unit = {}) {
     val trackers by viewModel.trackers.collectAsState()
     var editedTrackers by remember { mutableStateOf(trackers) }
     val context = LocalContext.current
@@ -957,7 +958,20 @@ fun SettingsScreen(viewModel: TorrentViewModel, onShareApp: () -> Unit = {}) {
         ) {
             Icon(Icons.Default.Share, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Share Beam! v$appVersion")
+            Text("Share Beam! v$appVersion  (Android)")
+        }
+        Text(
+            "Or send the PC version (Windows installer) — fetched fresh from the Beam station, so it's always the latest.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        OutlinedButton(
+            onClick = onSharePcApp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.Share, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Share PC-Beam!  (Windows .msi)")
         }
 
         HorizontalDivider()

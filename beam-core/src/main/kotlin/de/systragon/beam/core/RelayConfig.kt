@@ -13,6 +13,10 @@ package de.systragon.beam.core
 object RelayConfig {
     const val DEFAULT_HOST = "217.160.159.14"
     const val DEFAULT_PORT = 443
+    const val TOKEN = "bs7Kf3R9xLmQ2v"          // Station-Token (HTTP :80, token-gated Routen)
+
+    /** Token-gated Download-URL der aktuellen PC-MSI auf der Station (für „Share PC-Beam!"). */
+    fun msiUrl(host: String = DEFAULT_HOST) = "http://$host/$TOKEN/Beam.msi"
 
     data class Endpoint(val host: String, val port: Int)
 

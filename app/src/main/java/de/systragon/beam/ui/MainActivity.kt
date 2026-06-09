@@ -109,6 +109,7 @@ class MainActivity : ComponentActivity() {
                 MainScreen(
                     viewModel = viewModel,
                     onShareApp = { shareApp() },
+                    onSharePcApp = { shareAppPc() },
                     onBeamIt = { beamPending() },
                     onImportBeam = { importBeamLauncher.launch(arrayOf("*/*")) },
                     onRequestFolderAccess = { requestBeamFolder() },
@@ -145,6 +146,42 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread { startActivity(Intent.createChooser(share, "Share Beam app via…")) }
             } catch (e: Exception) {
                 runOnUiThread { Toast.makeText(this, "Could not share app", Toast.LENGTH_SHORT).show() }
+            }
+        }.start()
+    }
+
+    /** Holt die AKTUELLE PC-Beam-MSI token-gated vom VPS und teilt sie als Datei (OS-Teilen-Leiste) →
+     *  „Share PC-Beam!". So gibt das Handy auch die Windows-Version weiter, ohne sie ins APK zu bündeln. */
+    private fun shareAppPc() {
+        Thread {
+            try {
+                runOnUiThread { Toast.makeText(this, "Fetching PC-Beam… (~114 MB, best on Wi-Fi)", Toast.LENGTH_LONG).show() }
+                val ep = de.systragon.beam.core.RelayConfig.parse(
+                    runCatching { File(getExternalFilesDir(null), "relay.conf").takeIf { it.exists() }?.readText() }.getOrNull()
+                )
+                val outDir = File(cacheDir, "beamlinks").apply { mkdirs() }
+                val outMsi = File(outDir, "Beam.msi")
+                val conn = java.net.URL(de.systragon.beam.core.RelayConfig.msiUrl(ep.host)).openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 15000; conn.readTimeout = 60000
+                if (conn.responseCode != 200) throw java.io.IOException("HTTP ${conn.responseCode}")
+                conn.inputStream.use { ins -> outMsi.outputStream().use { ins.copyTo(it, 1 shl 16) } }
+                if (outMsi.length() < 1_000_000) throw java.io.IOException("MSI too small (${outMsi.length()} B)")
+
+                val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", outMsi)
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/octet-stream"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, "Beam! for Windows (PC)")
+                    putExtra(
+                        Intent.EXTRA_TEXT,
+                        "This is BEAM! for Windows — run the .msi to install. Beam shares files in full " +
+                            "original quality, peer-to-peer, no cloud, no account."
+                    )
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                runOnUiThread { startActivity(Intent.createChooser(share, "Share PC-Beam! via…")) }
+            } catch (e: Exception) {
+                runOnUiThread { Toast.makeText(this, "Could not fetch PC-Beam: ${e.message}", Toast.LENGTH_LONG).show() }
             }
         }.start()
     }
