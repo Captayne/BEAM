@@ -41,13 +41,33 @@ class BeamTracker(
     fun start() {
         val server = HttpServer.create(InetSocketAddress(port), 0)
         server.createContext("/$token/announce") { ex -> safe(ex) { handleAnnounce(ex) } }
+        // Token-gated MSI-Auslieferung: NUR Beam (kennt das Token) kann die PC-Version vom VPS holen,
+        // um sie weiterzuverteilen. Kein öffentlicher Download (Bandbreiten-/Leech-Schutz).
+        server.createContext("/$token/Beam.msi") { ex -> safe(ex) { serveFile(ex, java.io.File("/root/beam-dist/Beam.msi"), "application/x-msi") } }
         server.createContext("/") { ex -> respond(ex, "Beam Station\n".toByteArray()) }  // harmlose Health-Antwort
         server.executor = Executors.newCachedThreadPool()
         server.start()
-        log("Mini-Tracker läuft auf :$port/$token/announce")
+        log("Mini-Tracker läuft auf :$port/$token/announce  (+ /$token/Beam.msi)")
         Thread {
             while (true) { try { Thread.sleep(60_000) } catch (_: InterruptedException) {}; cleanup() }
         }.apply { isDaemon = true }.start()
+    }
+
+    /** Liefert eine Datei aus (für die token-gated MSI). GET streamt; HEAD nur Header (Größenabfrage). */
+    private fun serveFile(ex: HttpExchange, f: java.io.File, contentType: String) {
+        val method = ex.requestMethod.uppercase()
+        if ((method != "GET" && method != "HEAD") || !f.exists()) {
+            ex.sendResponseHeaders(404, -1); ex.close(); return
+        }
+        ex.responseHeaders.add("Content-Type", contentType)
+        ex.responseHeaders.add("Content-Disposition", "attachment; filename=\"${f.name}\"")
+        if (method == "HEAD") {
+            ex.responseHeaders.add("Content-Length", f.length().toString())
+            ex.sendResponseHeaders(200, -1); ex.close(); return
+        }
+        ex.sendResponseHeaders(200, f.length())
+        ex.responseBody.use { out -> f.inputStream().use { it.copyTo(out) } }
+        log("MSI ausgeliefert: ${f.name} (${humanBytes(f.length())})")
     }
 
     private fun handleAnnounce(ex: HttpExchange) {
