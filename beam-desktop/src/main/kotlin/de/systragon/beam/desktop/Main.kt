@@ -23,6 +23,7 @@ import de.systragon.beam.media.FileCrypto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.Toolkit
@@ -504,11 +505,38 @@ private fun BeamApp(initialPaths: List<String>) {
                     }
                 }
 
+                // Live-Vorschau (wie Android): Dateianzahl + Gesamtgröße, sofort aktualisiert — bei
+                // Chronologie inkl. erweiterter Menge + Zeitraum. Berechnung im Hintergrund (Dateisystem).
+                val sendInfo by produceState<SendPreview?>(null, pendingSend, backupMode) {
+                    value = null
+                    if (pendingSend.isNotEmpty()) value = withContext(Dispatchers.IO) {
+                        val files = if (backupMode) expandChronologyPc(pendingSend) else pendingSend
+                        val times = files.map { it.lastModified() }.filter { it > 0 }
+                        SendPreview(
+                            count = files.size,
+                            bytes = files.sumOf { it.length() },
+                            expanded = backupMode && files.size > pendingSend.size,
+                            range = if (backupMode && times.size >= 2) {
+                                val fmt = java.text.SimpleDateFormat("dd.MM. HH:mm")
+                                "${fmt.format(java.util.Date(times.min()))} – ${fmt.format(java.util.Date(times.max()))}"
+                            } else ""
+                        )
+                    }
+                }
+
                 // Pending files → here (after options) the .beam/.beamenc is created + seeded.
                 if (pendingSend.isNotEmpty()) {
+                    val info = sendInfo
                     Text(
-                        "${pendingSend.size} file(s) ready to send" +
-                            (if (backupMode) " 🗓️" else if (encryptOn) " 🔒" else ""),
+                        buildString {
+                            if (info == null) { append("${pendingSend.size} file(s) — computing…") }
+                            else {
+                                if (info.expanded) append("🗓️ Chronology: ")
+                                append("${info.count} file(s) · ${humanSize(info.bytes)}")
+                                if (info.range.isNotEmpty()) append("   (${info.range})")
+                                if (encryptOn && !backupMode) append("   🔒")
+                            }
+                        },
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Button(
@@ -620,6 +648,17 @@ private fun containsAnyFile(dir: File): Boolean = dir.walkTopDown().any { it.isF
  * PC-Chronologie-Expansion: aus den ausgewählten Anker-Dateien älteste/neueste Änderungszeit nehmen
  * und ALLE Dateien dazwischen in denselben Ordner(n) ergänzen (nicht rekursiv). Leer/ungültig → Anker.
  */
+/** Live-Vorschau der zu sendenden Menge (für die UI). */
+private data class SendPreview(val count: Int, val bytes: Long, val expanded: Boolean, val range: String)
+
+/** Menschenlesbare Größe (B/KB/MB/GB). */
+private fun humanSize(b: Long): String {
+    if (b < 1024) return "$b B"
+    val kb = b / 1024.0; if (kb < 1024) return "%.0f KB".format(kb)
+    val mb = kb / 1024.0; if (mb < 1024) return "%.1f MB".format(mb)
+    return "%.2f GB".format(mb / 1024.0)
+}
+
 private fun expandChronologyPc(anchors: List<File>): List<File> {
     val times = anchors.map { it.lastModified() }.filter { it > 0 }
     if (times.isEmpty()) return anchors
