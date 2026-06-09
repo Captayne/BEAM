@@ -20,12 +20,12 @@ Instead of picking hundreds of files, you just share one file from the START and
 Chronology sends your ORIGINALS, unless you choose a lower "Video quality" in this mode. Beam only offers to compress videos, because more and more recordings are in 4K or even 8K, which dramatically increases data volumes. Tip: keep the phone charging — large events take a while.
 
 📥 Receive
-Open the received xyz###.beam file with the Beam! app or PC: in Whatsapp just click the beam-message and the app should come up and start.
-Beam shows a download activity-card and the transfer is initiates automatically: photos & videos go to your gallery, everything else to Download/Beam.
+Open the received xyz###.beam file with the Beam! app — or on PC: in WhatsApp just click the beam-message and the app should come up and start.
+Beam shows a download activity-card and the transfer is initiated automatically: photos & videos go to your gallery, everything else to Download/Beam.
 The receiver doesn't need to do anything else — not even for the relay.
 
 🔒 Encrypt (optional)
-When sending, you can enable encryption and enter a passphrase for end to end encryption: The receiver needs the same passphrase, for maximum safety.
+When sending, you can enable encryption and enter a passphrase for end-to-end encryption: The receiver needs the same passphrase, for maximum safety.
 
 🎛 Icons on an activity-card:
 📋  Copy the magnet link (to use in other torrent apps).
@@ -38,7 +38,7 @@ When sending, you can enable encryption and enter a passphrase for end to end en
 ✕  Removes the activity-card only and keeps the files — when you are ok with the transfer.
 
 🔗 Settings / Trackers
-Trackers help sender and receiver find each other. You can edit the tracker list under Settings; sender and receiver must use the same trackers (the defaults work). Trackers are the backbone of the torrent network — they let sender and receiver find each other anonymously, by their shared HASH. It may take a little while until two sides looking for the same HASH find each other. Beam (ab)uses the torrent network to let sender and receiver find each others for private transfers,😁
+Trackers help sender and receiver find each other. You can edit the tracker list under Settings; sender and receiver must use the same trackers (the defaults work). Trackers are the backbone of the torrent network — they let sender and receiver find each other anonymously, by their shared HASH. It may take a little while until two sides looking for the same HASH find each other. Beam (ab)uses the torrent network to let sender and receiver find each other for private transfers. 😁
 
 🚀 Faster & more reliable
 • Best speed: have both phones on the same 5 GHz Wi-Fi (or turn one phone into a hotspot and connect the other to it) — this avoids the router bottleneck.
