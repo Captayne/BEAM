@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Klartext-HTTP NUR für die Beam-Relay-Station erlauben (token-gated MSI-Download via
+     HttpURLConnection). Der Rest bleibt auf den sicheren Default (kein Cleartext).
+     Hinweis: Tracker-Announces laufen über libtorrent/native und sind von dieser Policy
+     ohnehin nicht betroffen. -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">217.160.159.14</domain>
+    </domain-config>
+</network-security-config>

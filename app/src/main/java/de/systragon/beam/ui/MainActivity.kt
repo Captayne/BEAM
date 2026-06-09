@@ -181,6 +181,7 @@ class MainActivity : ComponentActivity() {
                 }
                 runOnUiThread { startActivity(Intent.createChooser(share, "Share PC-Beam! via…")) }
             } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "shareAppPc failed", e)
                 runOnUiThread { Toast.makeText(this, "Could not fetch PC-Beam: ${e.message}", Toast.LENGTH_LONG).show() }
             }
         }.start()
