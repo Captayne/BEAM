@@ -52,6 +52,7 @@ fun main(args: Array<String>) {
         beamLog("!!! UNCAUGHT in thread '${t.name}': ${e.stackTraceToString()}")
     }
     ensureNativeLib() // vor dem ersten libtorrent-Zugriff!
+    registerSendTo()  // „Senden an → Beam!" bei jedem Start sicherstellen (frische Installationen!)
 
     // „Senden an → BEAM!" übergibt eine oder mehrere markierte Dateien als Argumente.
     val initialPaths = args.filter { it.isNotBlank() }
@@ -85,6 +86,27 @@ private val BEAM_VERSION: String = System.getProperty("beam.version") ?: "dev"
 /** Globaler UI-Skalierungsfaktor (auf die geerbte Windows-Density). <1 = kompakter (Schrift+Abstände).
  *  Für große, hoch skalierte 4K-Monitore. Hier zentral justierbar. */
 private const val UI_SCALE = 0.8f
+
+/**
+ * Legt – nur im installierten Windows-Build – die „Senden an → Beam!"-Verknüpfung im SendTo-Ordner des
+ * Nutzers an (falls sie fehlt). Damit funktioniert Mehrfach-Auswahl → EIN Beam mit ALLEN Dateien (statt
+ * „Öffnen mit" = eine Instanz pro Datei) auf JEDER Installation. jpackage liefert den eigenen exe-Pfad
+ * via System-Property `jpackage.app-path` (im Dev-Run null → übersprungen).
+ */
+private fun registerSendTo() {
+    runCatching {
+        val appPath = System.getProperty("jpackage.app-path") ?: return   // nur installierter Build
+        val exe = File(appPath)
+        if (!exe.exists()) return
+        val p = exe.absolutePath.replace("'", "''")                       // PowerShell-Single-Quote-Escape
+        val cmd = "\$l=Join-Path ([Environment]::GetFolderPath('SendTo')) 'Beam!.lnk'; " +
+            "if(-not(Test-Path \$l)){\$s=(New-Object -ComObject WScript.Shell).CreateShortcut(\$l);" +
+            "\$s.TargetPath='$p';\$s.IconLocation='$p,0';\$s.Description='Send file(s) to Beam!';\$s.Save()}"
+        ProcessBuilder("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", cmd)
+            .redirectErrorStream(true).start().waitFor()
+        beamLog("SendTo: 'Beam!' geprüft/angelegt (exe=$appPath)")
+    }.onFailure { beamLog("SendTo-Registrierung fehlgeschlagen: ${it.message}") }
+}
 private val downloadDir = File(System.getProperty("user.home"), "Downloads/Beam").apply { mkdirs() }
 private val workDir = File(System.getProperty("java.io.tmpdir"), "beam-desktop").apply { mkdirs() }
 // Editierbare, persistente Tracker-Liste (Datei `Downloads/Beam/trackers.txt`); Default = unsere Liste
