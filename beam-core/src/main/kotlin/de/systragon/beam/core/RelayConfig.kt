@@ -21,6 +21,13 @@ object RelayConfig {
     /** Relay-Now: registriert die eigene IP als SENDER für [hashHex] (Rollen-Signal der Byte-Pipe). */
     fun seedUrl(hashHex: String, host: String = DEFAULT_HOST) = "http://$host/$TOKEN/seed?hash=$hashHex"
 
+    /** Empfänger-Heartbeat „ich hänge noch" für [hashHex] (TTL beim Relay) → speist die Stuck-Zahl. */
+    fun waitingUrl(hashHex: String, id: String, host: String = DEFAULT_HOST) =
+        "http://$host/$TOKEN/waiting?hash=$hashHex&id=$id"
+
+    /** Sender fragt die Anzahl gerade hängender Empfänger ab → liefert eine Zahl als Klartext. */
+    fun statusUrl(hashHex: String, host: String = DEFAULT_HOST) = "http://$host/$TOKEN/status?hash=$hashHex"
+
     data class Endpoint(val host: String, val port: Int)
 
     val DEFAULT = Endpoint(DEFAULT_HOST, DEFAULT_PORT)

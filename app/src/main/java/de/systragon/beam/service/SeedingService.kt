@@ -90,6 +90,7 @@ class SeedingService : Service() {
                 updateLocks()
                 maybeAdjustTransport()
                 maybeRelayRedial()
+                maybeRelayBadge()
                 TorrentManager.refreshTrackerStatus()
                 logConnections()
                 if (tick % 6 == 0) logTrackers()   // ~alle 30 s
@@ -169,6 +170,62 @@ class SeedingService : Service() {
             Log.i("SeedingService", "Relay: als Sender registriert (${hash.take(8)})")
         }.onFailure { Log.w("SeedingService", "Relay /seed fehlgeschlagen: ${it.message}") }
     }
+
+    // Eindeutige Kennung dieser App-Instanz (zählt gleiche-NAT-Empfänger einzeln in der Stuck-Zahl).
+    private val relayClientId by lazy { java.util.UUID.randomUUID().toString().take(12) }
+
+    /** Empfänger pingen „ich hänge" solange kein Datenfluss; Sender pollen die Wartenden-Zahl (Badge) und
+     *  schalten Relay automatisch ab, wenn niemand mehr hängt UND nichts mehr hochgeladen wird (Karenz). */
+    private fun maybeRelayBadge() {
+        val now = System.currentTimeMillis()
+        val ep = de.systragon.beam.core.RelayConfig.parse(
+            runCatching { java.io.File(getExternalFilesDir(null), "relay.conf").takeIf { it.exists() }?.readText() }.getOrNull()
+        )
+        TorrentManager.getAll().forEach { e ->
+            val st = e.handle?.takeIf { it.isValid }?.status() ?: return@forEach
+            if (e.isDownload) {
+                val stuck = !st.isFinished && st.downloadRate() == 0 && now - e.createdAt > 15_000L
+                if (stuck && now - e.lastWaitingPing > 9_000L) {
+                    e.lastWaitingPing = now
+                    Thread { pingWaiting(ep.host, e.infoHash) }.start()
+                }
+            } else if (now - e.lastStatusPoll > 6_000L) {
+                e.lastStatusPoll = now
+                val uploading = st.uploadRate() > 0
+                Thread {
+                    val n = fetchStatus(ep.host, e.infoHash)
+                    if (n >= 0) e.relayWaiting = n
+                    if (e.relayEngaged) {
+                        if (n == 0 && !uploading) {
+                            if (e.relayIdleSince == 0L) e.relayIdleSince = now
+                            else if (now - e.relayIdleSince > 30_000L) {
+                                e.relayEngaged = false; e.relayIdleSince = 0L
+                                Log.i("SeedingService", "Relay auto-off (${e.infoHash.take(8)}): niemand wartet")
+                            }
+                        } else e.relayIdleSince = 0L
+                    }
+                }.start()
+            }
+        }
+    }
+
+    private fun pingWaiting(host: String, hash: String) {
+        runCatching {
+            (java.net.URL(de.systragon.beam.core.RelayConfig.waitingUrl(hash, relayClientId, host))
+                .openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 6000; readTimeout = 6000; inputStream.use { it.readBytes() }; disconnect()
+            }
+        }
+    }
+
+    private fun fetchStatus(host: String, hash: String): Int = runCatching {
+        val c = java.net.URL(de.systragon.beam.core.RelayConfig.statusUrl(hash, host))
+            .openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 6000; c.readTimeout = 6000
+        val s = c.inputStream.use { it.readBytes() }.toString(Charsets.US_ASCII).trim()
+        c.disconnect()
+        s.toIntOrNull() ?: -1
+    }.getOrDefault(-1)
 
     private fun maybeAdjustTransport() {
         // WICHTIG: Das Beam-Relay ist eine reine TCP-Röhre. Sobald das Relay im Spiel ist (jeder

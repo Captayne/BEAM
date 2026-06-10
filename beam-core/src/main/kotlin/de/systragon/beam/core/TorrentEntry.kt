@@ -37,6 +37,10 @@ data class TorrentEntry(
     var peerSeenAt: Long = 0L,        // wann das Gegenüber zuerst bekannt wurde (Grace-Timer-Anker)
     var relayEngaged: Boolean = false, // Relay-exklusiv schon umgeschaltet? (clear_peers nur EINMAL)
     var lastRelayDial: Long = 0L,      // Empfänger: wann zuletzt am Relay angemeldet (periodisches Re-Dial)
+    var relayWaiting: Int = 0,         // Sender: wie viele Empfänger hängen gerade (Badge am Relay-Knopf)
+    var lastWaitingPing: Long = 0L,    // Empfänger: letzter „ich-hänge"-Ping ans Relay
+    var lastStatusPoll: Long = 0L,     // Sender: letzte Abfrage der Wartenden-Anzahl
+    var relayIdleSince: Long = 0L,     // Sender: seit wann niemand wartet + kein Upload (Auto-Off-Karenz)
     // --- Empfang (Download) ---
     var isDownload: Boolean = false,
     var progress: Float = 0f,         // 0..1

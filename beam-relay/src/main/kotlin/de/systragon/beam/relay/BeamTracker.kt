@@ -40,6 +40,11 @@ class BeamTracker(
     private val seederReg = ConcurrentHashMap<String, Long>()
     private val seederTtlMs = 10 * 60_000L
 
+    // "hashHex|clientId" -> Ablaufzeit. Empfänger, die gerade hängen (kein Datenfluss), pingen periodisch
+    // → Anzahl = wie viele „lauern vergeblich". clientId statt IP, damit gleiche-NAT-Empfänger einzeln zählen.
+    private val waitingReg = ConcurrentHashMap<String, Long>()
+    private val waitingTtlMs = 25_000L
+
     /** Kennt der Tracker diesen Infohash (mind. ein aktuell angemeldeter Peer)? → Gate für die Byte-Pipe. */
     fun knows(hashHex: String): Boolean = swarms[hashHex]?.isNotEmpty() ?: false
 
@@ -53,6 +58,9 @@ class BeamTracker(
         // Relay-Now: der Sender registriert sich token-gated als SEEDER für einen Hash (Rollen-Signal
         // für die Pipe; später der Briefmarken-Verbuchungspunkt). Keine Portfreigabe nötig (alles raus).
         server.createContext("/$token/seed") { ex -> safe(ex) { handleSeed(ex) } }
+        // Empfänger-Heartbeat „ich hänge noch" + Sender-Abfrage der Wartenden-Anzahl (für den Badge).
+        server.createContext("/$token/waiting") { ex -> safe(ex) { handleWaiting(ex) } }
+        server.createContext("/$token/status") { ex -> safe(ex) { handleStatus(ex) } }
         // Token-gated MSI-Auslieferung: NUR Beam (kennt das Token) kann die PC-Version vom VPS holen,
         // um sie weiterzuverteilen. Kein öffentlicher Download (Bandbreiten-/Leech-Schutz).
         server.createContext("/$token/Beam.msi") { ex -> safe(ex) { serveFile(ex, java.io.File("/root/beam-dist/Beam.msi"), "application/x-msi") } }
@@ -91,6 +99,29 @@ class BeamTracker(
         seederReg["$hashHex|$ip"] = System.currentTimeMillis() + seederTtlMs
         respond(ex, "ok\n".toByteArray())
         log("SEEDER registriert: ${hashHex.take(8)} von $ip (TTL ${seederTtlMs / 1000}s)")
+    }
+
+    /** Empfänger-Heartbeat: markiert (hash,clientId) als „hängt noch" mit kurzem TTL. */
+    private fun handleWaiting(ex: HttpExchange) {
+        val params = parseRawQuery(ex.requestURI.rawQuery ?: "")
+        val hashHex = params["hash"]?.let { String(it, Charsets.US_ASCII).lowercase() }
+        val id = params["id"]?.let { String(it, Charsets.US_ASCII) }
+        if (hashHex == null || hashHex.length != 40 || id.isNullOrEmpty()) { respond(ex, "bad\n".toByteArray()); return }
+        waitingReg["$hashHex|$id"] = System.currentTimeMillis() + waitingTtlMs
+        respond(ex, "ok\n".toByteArray())
+    }
+
+    /** Liefert die Anzahl gerade hängender Empfänger für einen Hash (Klartext-Zahl). */
+    private fun handleStatus(ex: HttpExchange) {
+        val params = parseRawQuery(ex.requestURI.rawQuery ?: "")
+        val hashHex = params["hash"]?.let { String(it, Charsets.US_ASCII).lowercase() }
+        respond(ex, "${if (hashHex == null) 0 else waitingCount(hashHex)}\n".toByteArray())
+    }
+
+    private fun waitingCount(hashHex: String): Int {
+        val now = System.currentTimeMillis()
+        val prefix = "$hashHex|"
+        return waitingReg.count { it.key.startsWith(prefix) && it.value > now }
     }
 
     private fun handleAnnounce(ex: HttpExchange) {
@@ -139,6 +170,7 @@ class BeamTracker(
             if (swarm.isEmpty()) swarms.remove(hash)
         }
         seederReg.entries.removeIf { it.value < now }
+        waitingReg.entries.removeIf { it.value < now }
     }
 
     private inline fun safe(ex: HttpExchange, block: () -> Unit) {

@@ -748,18 +748,22 @@ fun TorrentCard(
                 // Relay und eskaliert per A2 selbst → dort KEIN Button (User-Entscheid). Beim Sender
                 // müssen beide Enden zuschalten, damit die Byte-Pipe paart.
                 if (!entry.isDownload) {
-                    // Relay-ON gilt für die ganze Karte (bedient alle Empfänger nacheinander), bis der
-                    // Sender die Karte killt. Grün = aktiv.
+                    // Relay-ON gilt für die ganze Karte (bedient alle Empfänger nacheinander); grün = aktiv.
+                    // Badge = wie viele Empfänger gerade hängen (auch wenn Relay aus → „drück mich"-Signal).
                     val relayOn = entry.relayEngaged
-                    FilledTonalIconButton(
-                        onClick = onRelayClick,
-                        colors = if (relayOn)
-                            IconButtonDefaults.filledTonalIconButtonColors(
-                                containerColor = Color(0xFF2E7D32), contentColor = Color.White
-                            )
-                        else IconButtonDefaults.filledTonalIconButtonColors()
-                    ) {
-                        Icon(Icons.Default.CellTower, contentDescription = if (relayOn) "Relay ON" else "Relay NOW!")
+                    BadgedBox(badge = {
+                        if (entry.relayWaiting > 0) Badge { Text("${entry.relayWaiting}") }
+                    }) {
+                        FilledTonalIconButton(
+                            onClick = onRelayClick,
+                            colors = if (relayOn)
+                                IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = Color(0xFF2E7D32), contentColor = Color.White
+                                )
+                            else IconButtonDefaults.filledTonalIconButtonColors()
+                        ) {
+                            Icon(Icons.Default.CellTower, contentDescription = if (relayOn) "Relay ON" else "Relay NOW!")
+                        }
                     }
                 }
                 if (entry.isDownload) {

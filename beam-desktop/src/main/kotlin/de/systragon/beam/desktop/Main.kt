@@ -118,6 +118,29 @@ private fun registerSeeder(host: String, hash: String) {
         beamLog("Relay: als Sender registriert (${hash.take(8)})")
     }.onFailure { beamLog("Relay /seed fehlgeschlagen: ${it.message}") }
 }
+
+/** Eindeutige Kennung dieser Instanz (zählt gleiche-NAT-Empfänger einzeln in der Stuck-Zahl). */
+private val relayClientId = java.util.UUID.randomUUID().toString().take(12)
+
+/** Empfänger-Heartbeat „ich hänge noch" für [hash] (speist die Stuck-Zahl beim Relay). */
+private fun pingWaiting(host: String, hash: String) {
+    runCatching {
+        (java.net.URL(de.systragon.beam.core.RelayConfig.waitingUrl(hash, relayClientId, host))
+            .openConnection() as java.net.HttpURLConnection).apply {
+            connectTimeout = 6000; readTimeout = 6000; inputStream.use { it.readBytes() }; disconnect()
+        }
+    }
+}
+
+/** Sender fragt die Anzahl gerade hängender Empfänger ab (−1 bei Fehler). */
+private fun fetchStatus(host: String, hash: String): Int = runCatching {
+    val c = java.net.URL(de.systragon.beam.core.RelayConfig.statusUrl(hash, host))
+        .openConnection() as java.net.HttpURLConnection
+    c.connectTimeout = 6000; c.readTimeout = 6000
+    val s = c.inputStream.use { it.readBytes() }.toString(Charsets.US_ASCII).trim()
+    c.disconnect()
+    s.toIntOrNull() ?: -1
+}.getOrDefault(-1)
 private val downloadDir = File(System.getProperty("user.home"), "Downloads/Beam").apply { mkdirs() }
 private val workDir = File(System.getProperty("java.io.tmpdir"), "beam-desktop").apply { mkdirs() }
 // Editierbare, persistente Tracker-Liste (Datei `Downloads/Beam/trackers.txt`); Default = unsere Liste
@@ -148,7 +171,8 @@ private data class UiTransfer(
     val progress: Float,      // 0..1, oder -1 = unbestimmt/seeding
     val showProgress: Boolean,
     val directBlocked: Boolean = false,  // Gegenüber bekannt, aber keine direkte Verbindung → Relay anbieten
-    val relayEngaged: Boolean = false    // Sender hat Relay-ON für diese Karte → Button grün
+    val relayEngaged: Boolean = false,   // Sender hat Relay-ON für diese Karte → Button grün
+    val relayWaiting: Int = 0            // wie viele Empfänger gerade hängen → Badge am Relay-Knopf
 )
 
 // Geduld, bevor „direkt blockiert" gemeldet wird (ab dem Moment, wo das Gegenüber bekannt wurde).
@@ -388,6 +412,34 @@ private fun BeamApp(initialPaths: List<String>) {
                                 }.start()
                             }
                         }
+                        // Badge/Auto-Off: Empfänger pingt „ich hänge" solange kein Datenfluss; Sender pollt
+                        // die Wartenden-Zahl + schaltet Relay automatisch ab, wenn niemand hängt UND kein Upload.
+                        run {
+                            val ep = relayEndpoint()
+                            if (e.isDownload) {
+                                val stuck = !finished && rate == 0 && nowMs - e.createdAt > 15_000L
+                                if (stuck && nowMs - e.lastWaitingPing > 9_000L) {
+                                    e.lastWaitingPing = nowMs
+                                    Thread { pingWaiting(ep.host, e.infoHash) }.start()
+                                }
+                            } else if (nowMs - e.lastStatusPoll > 6_000L) {
+                                e.lastStatusPoll = nowMs
+                                val uploading = rate > 0
+                                Thread {
+                                    val n = fetchStatus(ep.host, e.infoHash)
+                                    if (n >= 0) e.relayWaiting = n
+                                    if (e.relayEngaged) {
+                                        if (n == 0 && !uploading) {
+                                            if (e.relayIdleSince == 0L) e.relayIdleSince = nowMs
+                                            else if (nowMs - e.relayIdleSince > 30_000L) {
+                                                e.relayEngaged = false; e.relayIdleSince = 0L
+                                                beamLog("Relay auto-off (${e.infoHash.take(8)}): niemand wartet")
+                                            }
+                                        } else e.relayIdleSince = 0L
+                                    }
+                                }.start()
+                            }
+                        }
                         UiTransfer(
                             infoHash = e.infoHash,
                             name = e.fileName,
@@ -397,7 +449,8 @@ private fun BeamApp(initialPaths: List<String>) {
                             progress = prog,
                             showProgress = e.isDownload && !finished,
                             directBlocked = blocked,
-                            relayEngaged = e.relayEngaged
+                            relayEngaged = e.relayEngaged,
+                            relayWaiting = e.relayWaiting
                         )
                     }
                 // Backup-Downloads: ALLE Dateien flach in den gewählten Ordner (User-Wunsch:
@@ -672,12 +725,14 @@ private fun TransferCard(t: UiTransfer, beamPath: String?) {
                             TorrentManager.engageRelay(t.infoHash, ep.host, ep.port)
                         }.start(); Unit
                     }
+                    val waitBadge = if (t.relayWaiting > 0) "  (${t.relayWaiting} waiting)" else ""
                     when {
                         t.relayEngaged -> Button(
                             onClick = engage,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
-                        ) { Text("📡 Relay ON") }                                  // grün = aktiv
-                        t.directBlocked -> Button(onClick = engage) { Text("📡 Send via Relay") }
+                        ) { Text("📡 Relay ON$waitBadge") }                         // grün = aktiv
+                        t.relayWaiting > 0 || t.directBlocked ->                    // jemand hängt → „drück mich"
+                            Button(onClick = engage) { Text("📡 Relay NOW!$waitBadge") }
                         else -> TextButton(onClick = engage) { Text("📡 Relay NOW!") }
                     }
                 }
