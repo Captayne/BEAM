@@ -535,12 +535,20 @@ fun TransferScreen(
     onRequestAllFiles: () -> Unit = {}
 ) {
     val torrents by viewModel.torrents.collectAsState()
+    val welcomePrefs = remember { context.getSharedPreferences("beam_prefs", Context.MODE_PRIVATE) }
+    var welcomeSeen by remember { mutableStateOf(welcomePrefs.getBoolean("welcomeSeen", false)) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // Höfliche Welcome-Karte beim ersten Start (X = weg, gemerkt).
+        if (!welcomeSeen) item {
+            WelcomeCard(onDismiss = {
+                welcomePrefs.edit().putBoolean("welcomeSeen", true).apply(); welcomeSeen = true
+            })
+        }
         // Konfig-Leiste (Sende-Optionen + „Ready to send"-Karte) als ERSTES Listenelement — genau da,
         // wo auch die Torrent-Karten stehen; scrollt mit.
         item { EncryptionBar(viewModel, onBeamIt, onChronologyToggled, onRequestAllFiles) }
@@ -1042,3 +1050,37 @@ private fun formatSize(bytes: Long): String {
         else -> "%.2f GB".format(bytes / 1_073_741_824.0)
     }
 }
+
+/** Höfliche Willkommens-Karte beim ersten Start. Ton der Marke — jeder Satz bewusst gewählt. */
+@Composable
+private fun WelcomeCard(onDismiss: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth()) {
+            IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd)) {
+                Icon(Icons.Default.Close, contentDescription = "Dismiss")
+            }
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    "Welcome to the community of Beam! users.",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(end = 36.dp)   // Platz fürs X oben rechts
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(WELCOME_BODY, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
+private const val WELCOME_BODY =
+    "Beam! sends any number of true original files, of any size, straight from the sender's device " +
+    "to the people it is intended for — without the unfortunate need to agree to share anything with " +
+    "a service in between.\n\n" +
+    "It is all too easy to have signed away your rights in strange, yet all-too-common, terms and " +
+    "conditions. Beam! sidesteps all of that, simply by never handing your data to a service that " +
+    "reads it, keeps it, or feeds on it — it travels peer to peer. There is no large party in between, " +
+    "harvesting and mining your data for ends of its own.\n\n" +
+    "No account. No middleman with interests of its own. No limits — any file, any size. Just Beam! to Beam!\n\n" +
+    "And for even more safety, set a private passphrase, shared with your receivers over a separate channel.\n\n" +
+    "That a Beam! transfer reached you at all is a mark of trust. Enjoy."
