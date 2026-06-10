@@ -107,8 +107,11 @@ class BeamTracker(
         val hashHex = params["hash"]?.let { String(it, Charsets.US_ASCII).lowercase() }
         val id = params["id"]?.let { String(it, Charsets.US_ASCII) }
         if (hashHex == null || hashHex.length != 40 || id.isNullOrEmpty()) { respond(ex, "bad\n".toByteArray()); return }
-        waitingReg["$hashHex|$id"] = System.currentTimeMillis() + waitingTtlMs
+        val key = "$hashHex|$id"
+        val isNew = (waitingReg[key] ?: 0L) < System.currentTimeMillis()   // neu oder abgelaufen → loggen
+        waitingReg[key] = System.currentTimeMillis() + waitingTtlMs
         respond(ex, "ok\n".toByteArray())
+        if (isNew) log("WARTET: ${hashHex.take(8)} von ${ex.remoteAddress.address.hostAddress} → ${waitingCount(hashHex)} hängen")
     }
 
     /** Liefert die Anzahl gerade hängender Empfänger für einen Hash (Klartext-Zahl). */
