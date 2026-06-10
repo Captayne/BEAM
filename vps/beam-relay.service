@@ -1,0 +1,16 @@
+[Unit]
+Description=Beam Relay Station (private tracker :80 + byte-pipe :443)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/beam-relay
+ExecStart=/usr/lib/jvm/java-21-openjdk-amd64/bin/java -classpath /root/beam-relay/lib/* de.systragon.beam.relay.RelayMainKt
+Restart=always
+RestartSec=3
+StandardOutput=append:/root/relay.log
+StandardError=append:/root/relay.log
+
+[Install]
+WantedBy=multi-user.target

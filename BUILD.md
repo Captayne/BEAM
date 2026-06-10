@@ -69,6 +69,10 @@ $env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot"
 ---
 
 ## 5. Relay-Station (VPS) betreiben/deployen
+> **Vollstaendige Server-Doku + Skripte liegen in [`vps/`](vps/README.md):** `README.md`
+> (Eckdaten, Routen, Server-von-Null-aufsetzen), `setup-vps.sh` (Provisioning), `deploy.ps1`
+> (Build + Push), `beam-relay.service` (systemd). Update deployen: **`.\vps\deploy.ps1`**.
+
 - **Server:** `root@217.160.159.14`, SSH-Key `~\.ssh\beam_relay` (im NAS-Backup unter `ssh\`).
 - **Dienst:** systemd `beam-relay` (Logs: `/root/relay.log`). Klassenpfad `/root/beam-relay/lib/*`.
 - **Token / Routen (HTTP :80):** Token `bs7Kf3R9xLmQ2v` (steht in `beam-core/.../RelayConfig.kt`).
