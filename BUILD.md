@@ -68,6 +68,17 @@ $env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot"
 
 ---
 
+## 4b. API-Doku generieren (Dokka)
+Aus den **KDoc**-Kommentaren (`/** ... */`) entsteht eine browsbare HTML-API-Doku, alle Module kombiniert:
+```powershell
+$env:JAVA_HOME = "C:\Installed\Android\Android Studio\jbr"
+.\gradlew.bat dokkaHtmlMultiModule
+# Ergebnis: build\dokka\htmlMultiModule\index.html  (im Browser oeffnen)
+```
+Einzelnes Modul: `.\gradlew.bat :beam-core:dokkaHtml`  (-> beam-core\build\dokka\html\index.html).
+Output ist gitignored (jederzeit regenerierbar). Dokka 2.0.0 (laeuft auf Gradle 9; bei Umstieg auf
+Gradle 10 spaeter auf Dokka-V2-Modus stellen).
+
 ## 5. Relay-Station (VPS) betreiben/deployen
 > **Vollstaendige Server-Doku + Skripte liegen in [`vps/`](vps/README.md):** `README.md`
 > (Eckdaten, Routen, Server-von-Null-aufsetzen), `setup-vps.sh` (Provisioning), `deploy.ps1`

@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
     application
+    alias(libs.plugins.dokka)
 }
 
 // Headless Relay-Daemon für die IONOS-VPS: nutzt den geteilten beam-core (TorrentManager, BeamLink,
