@@ -1074,13 +1074,9 @@ private fun WelcomeCard(onDismiss: () -> Unit) {
 }
 
 private const val WELCOME_BODY =
-    "Beam! sends any number of true original files, of any size, straight from the sender's device " +
-    "to the people it is intended for — without the unfortunate need to agree to share anything with " +
-    "a service in between.\n\n" +
-    "It is all too easy to have signed away your rights in strange, yet all-too-common, terms and " +
-    "conditions. Beam! sidesteps all of that, simply by never handing your data to a service that " +
-    "reads it, keeps it, or feeds on it — it travels peer to peer. There is no large party in between, " +
-    "harvesting and mining your data for ends of its own.\n\n" +
-    "No account. No middleman with interests of its own. No limits — any file, any size. Just Beam! to Beam!\n\n" +
-    "And for even more safety, set a private passphrase, shared with your receivers over a separate channel.\n\n" +
-    "That a Beam! transfer reached you at all is a mark of trust. Enjoy."
+    "Send any number of original files, any size, straight from the sender's device to the receivers " +
+    "— with no nosy service in between. No big player gets your data, because there simply is none in " +
+    "the middle. Just Beam! to Beam!\n\n" +
+    "For even more safety, add a private passphrase, shared with your receivers over a separate channel.\n\n" +
+    "You can pass Beam on — PC and Android — right from the Settings tab. " +
+    "(Apple's off-shore island isn't reached yet, sorry.)"
