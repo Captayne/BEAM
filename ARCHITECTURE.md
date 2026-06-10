@@ -5,20 +5,26 @@
 > Tiefere Hintergründe zu Einzelthemen stehen im Claude-Memory unter `memory/` (verlinkt unten).
 
 Beam ist eine **P2P-Filesharing-App** auf Basis von **libtorrent4j 2.1.0-31**. Dateien gehen direkt
-von Gerät zu Gerät (BitTorrent), kein Server dazwischen. Geteilt wird ein **`.beam`-Link** (der
-InfoHash steckt im Dateinamen), z. B. per WhatsApp. Package: `de.systragon.beam`.
+von Gerät zu Gerät (BitTorrent) — im Normalfall **kein Server dazwischen**. Geteilt wird ein
+**`.beam`-Link** (der InfoHash steckt im Dateinamen), z. B. per WhatsApp. Package: `de.systragon.beam`.
+
+Für die Fälle, in denen ein Direktweg unmöglich ist (CGNAT, Firmen-Firewall), gibt es seit Juni 2026
+eine **eigene, private Relay-Station** (`:beam-relay`, läuft auf einem VPS): beide Seiten wählen RAUS
+zu ihr, sie brückt die Verbindung — content-blind, ohne Storage (Kapitel 7b). Damit ist Beam auch
+hinter restriktiven Netzen voll nutzbar, ohne seine dezentrale Natur aufzugeben.
 
 ---
 
 ## 1. Modul-Struktur (Gradle Multi-Modul)
 
-`settings.gradle.kts` bindet drei Module ein:
+`settings.gradle.kts` bindet **vier** Module ein:
 
 | Modul | Typ | Inhalt |
 |---|---|---|
-| **`:beam-core`** | `kotlin-jvm` + `java-library` (Java-11-Bytecode) | **Plattformfreier** Kern: Torrent-Engine-Wrapper, Datenmodell, Krypto, Tracker, `.beam`-Format. Hängt an `api("org.libtorrent4j:libtorrent4j:2.1.0-31")`. KEINE Android-Abhängigkeit. |
+| **`:beam-core`** | `kotlin-jvm` + `java-library` (Java-11-Bytecode) | **Plattformfreier** Kern: Torrent-Engine-Wrapper, Datenmodell, Krypto, Tracker, `RelayConfig`, `.beam`-Format. Hängt an `api("org.libtorrent4j:libtorrent4j:2.1.0-31")`. KEINE Android-Abhängigkeit. |
 | **`:app`** | Android (`com.android.application`) | Android-App: UI (Compose), Foreground-Service, MediaStore, Intents. Hängt an `:beam-core`. |
 | **`:beam-desktop`** | `kotlin-jvm` + `jetbrains-compose` | Windows/Linux/macOS-Desktop (Compose Desktop). Hängt an `:beam-core`. In-Process-Session (kein Service/MediaStore). |
+| **`:beam-relay`** | `kotlin-jvm` + `application` (headless) | **Die Relay-Station** (`RelayMain`, `BeamTracker`, `BeamPipe`). Läuft als systemd-Dienst auf dem VPS — privater BitTorrent-Tracker (:80) + Byte-Pipe/Broker (:443). Hängt an `:beam-core`. Reproduzierbar aus [`vps/`](vps/README.md). |
 
 **Designprinzip:** Alles Plattformfreie lebt in `beam-core` und wird von Android UND Desktop geteilt.
 Android-only ist alles mit `android.*`-Abhängigkeit (Service, MediaStore, Notifications, Intents).
@@ -116,6 +122,78 @@ bei Bündel je Datei `<name>.beamenc`. Das `.beamenc` ist die **Nutzlast** (wird
   Auto-Fetch Top-Tracker von ngosang beim Start; Migration über `TRACKERS_VERSION`. → `memory/trackers-http-for-mobile.md`.
 - **Netzwechsel** mitten im Transfer wird über `registerDefaultNetworkCallback` aufgefangen (re-announce).
 - **Lokale Discovery (LSD)** braucht `MulticastLock`. → `memory/fetching-metadata-hang.md`.
+- **Relay** als letzter Fallback, wenn direkt unmöglich (CGNAT/Firmen-DPI) — siehe 7b.
+
+---
+
+## 7b. Die Relay-Station (`:beam-relay`) — Fallback für CGNAT/Firewall
+
+**Problem:** Hinter CGNAT/Firewall kann ein Gerät nur RAUS wählen, nie angenommen werden — zwei solche
+Geräte finden sich nie direkt. **Lösung:** Beide wählen RAUS zum Relay (Port **:443**, sieht aus wie
+HTTPS → kommt durch Firmen-Firewalls); das Relay **brückt** sie. Keine Portfreigabe beim Anwender.
+
+| Komponente | Rolle |
+|---|---|
+| `RelayMain.kt` | Startet Tracker (:80) + Pipe (:443), hält den Prozess. |
+| `BeamTracker.kt` | Privater HTTP-Tracker (BEP3 + compact BEP23), **token-gated**. Peer-IP aus der TCP-Verbindung (echte öffentliche Adresse, wichtig hinter NAT). `knows(hash)` = Gate für die Pipe. + Routen `/seed`, `/waiting`, `/status`, `/Beam.msi`. |
+| `BeamPipe.kt` | Die Byte-Pipe/**Broker** (:443): paart zwei Verbindungen mit gleichem Infohash und brückt sie. |
+
+### Broker statt dummer Röhre (synthetischer Handshake)
+Die naive Pipe scheiterte am Timing: wer allein ankam, dessen libtorrent gab nach ~15 s auf (das Relay
+blieb stumm, bis BEIDE da waren). **Broker-Lösung:** jeder Client bekommt SOFORT einen gültigen
+**synthetischen BT-Handshake** (pstrlen=19, „BitTorrent protocol", reserved+Infohash gespiegelt, eigene
+Relay-Peer-ID) → seine Verbindung gilt als „verbunden", er wartet geduldig. **Keepalives** (0-Längen-
+Nachricht alle 30 s) halten ihn am Leben; **Anfangs-Nachrichten werden gepuffert**. Kommt der Partner,
+werden beide Ströme gebrückt (Puffer zuerst, dann bidirektional pumpen). **Content-blind, kein Storage.**
+
+### Rollen-bewusste Paarung (mehrere Empfänger, kein Mis-Pairing)
+Die Pipe paart IMMER **Sender ↔ Empfänger**, nie Empfänger↔Empfänger. Rollen-Unterscheidung **ohne**
+unüblichen Port (alles auf :443/:80 → firewall-freundlich; ein :444 wäre von Firmen-FW oft geblockt):
+```
+Sender drückt „Relay NOW" → ruft /<token>/seed  → registriert seine IP als Seeder (TTL 10 min)
+Empfänger verbinden        → keine Seeder-Reg    → Empfänger-Warteschlange (FIFO)
+BeamPipe paart:  Seeder-Verbindung  ↔  ältester wartender Empfänger
+```
+`isSeederIp(hash, ip)` entscheidet die Rolle bei der Pipe-Verbindung; getrennte Schlangen `receiverQ`
+(FIFO) + `seederQ`. Teilnehmer mit gleichem Hash werden per **IP:Port** auseinandergehalten.
+
+### Wartenden-Zahl + Auto-Off (idiot-simple UX)
+- Hängende Empfänger pingen `/<token>/waiting?hash=&id=` (Heartbeat solange `rate==0`; `id` = App-
+  Instanz, damit gleiche-NAT-Empfänger einzeln zählen, TTL 25 s).
+- Sender pollt `/<token>/status?hash=` → **Zahl am Relay-Knopf** („N waiting", auch wenn Relay aus =
+  „drück mich"-Signal).
+- **Auto-Off:** niemand wartet (Zahl==0) UND kein Upload → nach 30 s Karenz schaltet Relay-ON sich
+  selbst ab. Zahl zählt 3→0 = alle versorgt; bleibt 1 = der hängt → Knopf drücken.
+
+### App-Seite (Android + Desktop, dieselbe Logik im Poll-Loop)
+**A2-Eskalation** (hängender Empfänger, `rate==0` seit ~20 s → relay-exklusiv: clear_peers + DHT/LSD/PEX
+aus, nur Station-Tracker), **Anti-Churn-Re-Dial** (nur wenn Relay nicht schon verbunden), **µTP aus,
+sobald Relay im Spiel** (die Pipe ist TCP-only — sonst läuft die Relay-Verbindung über UDP ins Leere).
+`engageRelay(infoHash, host, port, exclusive)`. URLs zentral in `RelayConfig`
+(`seedUrl`/`waitingUrl`/`statusUrl`/`msiUrl`). Der **Sender** registriert beim Druck (und im Re-Dial)
+per `/seed`; der Empfänger nie → so kennt die Pipe die Rolle.
+
+### Das Gate (Missbrauchsschutz)
+Die Pipe bedient nur Infohashes, die der eigene Tracker kennt (`knows`), und nur Clients mit dem
+**Token** (`bs7Kf3R9xLmQ2v`, in `RelayConfig`). Keine Fremdnutzung. Server-Doku + Reproduktion:
+[`vps/README.md`](vps/README.md).
+
+---
+
+## 7c. Selbstverteilung („Tupperware") — app-store-unabhängig
+
+Beam verbreitet sich **von Gerät zu Gerät**, ohne App-Store:
+- **„Share Beam (Android)"** (`MainActivity.shareApp`) — teilt die **eigene installierte APK** als Datei
+  (`applicationInfo.sourceDir` → OS-Teilen-Leiste). Funktioniert für Neulinge, weil's über den Messenger
+  als Datei geht, NICHT über einen Beam-Transfer (ein Neuling hat ja noch kein Beam).
+- **„Share PC-Beam!"** (`shareAppPc`) — holt die **aktuelle MSI token-gated vom VPS**
+  (`/<token>/Beam.msi`) und teilt sie. Kein APK-Bloat, immer neueste Version. (Android-Cleartext nur für
+  den Relay-Host: `res/xml/network_security_config.xml`.)
+- **„Senden an → Beam!"** (PC) wird bei jedem Start selbst registriert (`registerSendTo`, SendTo-
+  Verknüpfung) → frische Installationen haben Mehrfach-Auswahl ohne Gefummel.
+
+→ Jeder Nutzer ist Verteiler **beider** Plattformen. Build+Upload-Automatik: `build-pc-beam.ps1`
+(MSI → VPS). **Offen für Breite:** HTTPS auf der Station + MSI-Code-Signing (Trust/MITM).
 
 ---
 
@@ -185,6 +263,23 @@ Build-Verzeichnis gesperrt. Auto-Version in `beam-desktop/version.properties`.
     Top>)` → die Dateien landen DIREKT im Zielordner. `torrentFile()` zeigt danach noch alte Pfade
     (Snapshot) → beim Öffnen den gewählten Ordner nehmen, nicht `revealTarget.parentFile`; leeren
     `bundle_…`-Rest im Hintergrund entfernen (nur wenn keine echte Datei drin).
+12. **µTP killt das Relay**: Die Relay-Röhre ist **TCP-only**. Der µTP-Fallback (nach ~15 s ohne Peer)
+    schickte die Relay-Verbindung über **UDP** → die TCP-`ServerSocket` der Pipe konnte sie nicht
+    annehmen → **0 Bytes**. **Fix:** sobald das Relay im Spiel ist, ausgehendes µTP AUS. (Der Desktop
+    hatte den Fehler nie — er kennt keinen µTP-Fallback.)
+13. **Gate vs. exklusiver Tracker**: Exklusives `engageRelay` machte `replaceTrackers(emptyList())` →
+    der Hash war nirgends mehr angemeldet → das Gate wies die Pipe-Verbindung ab („ABGEWIESEN"). **Fix:**
+    den Station-Tracker behalten + `forceReannounce`.
+14. **Android blockt Klartext-HTTP** (targetSDK 35): `/seed`,`/waiting`,`/status` laufen über Javas
+    `HttpURLConnection` → von der Cleartext-Policy gesperrt (die Tracker-Announces über libtorrent/native
+    sind NICHT betroffen — deshalb fiel's spät auf). **Fix:** `res/xml/network_security_config.xml`
+    erlaubt Cleartext **nur für den Relay-Host**.
+15. **Rollen-Port :444 verworfen**: Sender/Empfänger per eigenem Port zu trennen wäre naheliegend — aber
+    **Firmen-Firewalls lassen oft nur :80/:443 RAUS**, :444 würde ausgerechnet den KUKA-Sender blocken.
+    **Lösung:** Rolle per `/seed`-Registrierung (auf :80) statt per Port.
+16. **Mülltonne löschte nur 1 von N**: Bei einem Bündel hielt der Empfang nur die LETZTE Medien-URI →
+    die Mülltonne löschte nur eine Datei. **Fix:** `TorrentEntry.savedUris` sammelt ALLE publish-URIs;
+    „Throw" löscht alle.
 
 ---
 
@@ -208,15 +303,20 @@ Die „geniale, einfache" Geste: ein ganzes Event in einem Schritt vom Handy ins
 
 ## 11. Offene Punkte / Nächste Schritte
 
-Siehe `memory/project-status.md` + `memory/feature-timerange-backup.md` (laufende Tracker). Stand:
-- **Chronology-Backup: fertig + feldbestätigt** (siehe oben); v2 = No-Copy-In-place-Seeden.
-- „Senden an → BEAM!" für die **installierte** PC-App (SendTo zeigt auf `C:\Program Files\Beam\Beam.exe`).
-- Eigener **HTTPS-Tracker auf IONOS** (verlässlicher Mobilfunk + Privacy via `private`-Flag).
-- Desktop-Persistenz (KeyValueStore) + Auto-Tracker; PC-Backup-Zielordner persistent + NAS-Default.
-- Hilfe-/`help.md` weiter pflegen (Chronology-Abschnitt ist drin).
+Laufende Tracker: `memory/project-status.md` (START HIER) + `memory/relay-ops.md`. Stand Juni 2026:
+- **Relay live + rollen-bewusst** (Branch `relay-gate-fix`); Feldtest beweist Klassifizierung, der
+  Relay-**Daten**-Pfad bei mehreren Empfängern ist im Feld noch selten ausgelöst (Direktweg robust).
+- **Selbstverteilung beider Plattformen** vom Handy (APK + token-gated MSI) — feldbestätigt.
+- **HTTPS auf der Station + MSI-Code-Signing** — der Trust-/MITM-Baustein fürs virale Wachstum.
+- **Metadaten-Privacy** (private Torrents / weniger öffentliche Tracker); „Briefmarken"-Kostenmodell
+  am `/seed`-Punkt; Caching-Super-Seed für „viele Empfänger gleichzeitig"; kein iOS.
+- **Doku** (dieses Dokument, KDoc+Dokka, BUILD.md, vps/) als Basis einer **Vorlesung** für die jüngere
+  Generation — Beam als reales Lehrstück (P2P, NAT, Relay-Broker, Krypto, Cross-Platform, Infra-as-Code).
 
-**Feldtest-Status:** 1. Runde (Tester-Freunde) lief; 2. Runde mit Chronology-Feature läuft an
-(erst Family, dann Freunde). PC: `Beam-1.0.13.msi` (ffmpeg + Chronology + sauberer Zielordner).
+**Build/Deploy-Doku ausgelagert:** [`BUILD.md`](BUILD.md) (alle Artefakte, Befehle) +
+[`vps/README.md`](vps/README.md) (Server reproduzierbar). API-Doku: `gradlew dokkaHtmlMultiModule`.
+
+**Merge:** `relay-gate-fix` → `main`, wenn die Feldtest-Zuversicht reicht (Tag `v2.13` + Meilenstein-Marker).
 
 ---
 
