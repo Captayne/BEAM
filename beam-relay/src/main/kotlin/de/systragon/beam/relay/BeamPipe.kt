@@ -30,16 +30,22 @@ import java.util.concurrent.atomic.AtomicLong
 class BeamPipe(
     private val port: Int,
     private val maxHoldMs: Long = 10 * 60_000L,      // wartende Verbindung max. so lange halten
-    private val isAllowed: (String) -> Boolean
+    private val isAllowed: (String) -> Boolean,
+    private val isSeederIp: (String, String) -> Boolean = { _, _ -> false }   // (hash, ip) → Sender?
 ) {
     /** Eine angenommene Client-Verbindung im Broker. */
-    private class Conn(val socket: Socket, val peerId: ByteArray) {
+    private class Conn(val socket: Socket, val peerId: ByteArray, val isSeeder: Boolean) {
         val buffer = ByteArrayOutputStream()             // Anfangs-Nachrichten, gepuffert bis zur Paarung
         @Volatile var partner: Conn? = null              // gesetzt, sobald gepaart
         val holdDone = CountDownLatch(1)                 // signalisiert: holdLoop hat den Socket freigegeben
     }
 
-    private val waiting = ConcurrentHashMap<String, Conn>()
+    // Pro Infohash getrennte Schlangen. Gepaart wird IMMER Sender↔Empfänger (nie Empfänger↔Empfänger
+    // → kein Mis-Pairing). Empfänger reihen sich FIFO ein; der Sender (Relay-Now, IP-registriert) zieht
+    // den ältesten Wartenden. Alle Schlangen-Mutationen unter [pairLock].
+    private val receiverQ = HashMap<String, ArrayDeque<Conn>>()
+    private val seederQ = HashMap<String, ArrayDeque<Conn>>()
+    private val pairLock = Any()
     private val pool = Executors.newCachedThreadPool()
 
     private val RELAY_PEER_ID = "-BR0001-BeamRelayPipe".toByteArray(Charsets.US_ASCII).copyOf(20)
@@ -65,25 +71,33 @@ class BeamPipe(
             log("pipe: ABGEWIESEN ${hashHex.take(8)} (kein Beam-Infohash)")
             sock.closeQuietly(); return
         }
+        val ip = (sock.remoteSocketAddress as? java.net.InetSocketAddress)?.address?.hostAddress ?: ""
+        val seeder = isSeederIp(hashHex, ip)                 // Rolle aus der Relay-Now-Registrierung
         // Sofort synthetischen Handshake zurück → der Client gilt als verbunden und wartet geduldig.
         try { sock.getOutputStream().apply { write(syntheticHandshake(hs)); flush() } }
         catch (e: Exception) { sock.closeQuietly(); return }
 
-        val me = Conn(sock, hs.copyOfRange(48, 68))
+        val me = Conn(sock, hs.copyOfRange(48, 68), seeder)
         var partner: Conn? = null
-        synchronized(waiting) {
-            val w = waiting[hashHex]
-            when {
-                w == null -> waiting[hashHex] = me
-                w.peerId.contentEquals(me.peerId) -> {        // gleiche peer_id = Selbstverbindung → alten ersetzen
-                    w.socket.closeQuietly(); waiting[hashHex] = me
-                    log("pipe: gleiche peer_id für ${hashHex.take(8)} → keine Selbst-Paarung")
-                }
-                else -> { waiting.remove(hashHex); partner = w; w.partner = me; me.partner = w }
+        synchronized(pairLock) {
+            if (seeder) {                                    // Sender zieht den ältesten wartenden Empfänger
+                partner = receiverQ[hashHex]?.takeIf { it.isNotEmpty() }?.removeFirst()
+                if (partner == null) seederQ.getOrPut(hashHex) { ArrayDeque() }.addLast(me)
+                else pruneEmpty(receiverQ, hashHex)
+            } else {                                         // Empfänger paart mit einem wartenden Sender
+                partner = seederQ[hashHex]?.takeIf { it.isNotEmpty() }?.removeFirst()
+                if (partner == null) receiverQ.getOrPut(hashHex) { ArrayDeque() }.addLast(me)
+                else pruneEmpty(seederQ, hashHex)
             }
+            partner?.let { it.partner = me; me.partner = it }
         }
-        if (partner == null) holdLoop(me, hashHex)            // puffern + keepalive bis Partner (oder Tod)
-        else bridge(partner!!, me, hashHex)                  // wir treiben die Brücke
+        val role = if (seeder) "Sender" else "Empfänger"
+        if (partner == null) { log("pipe: $role ${hashHex.take(8)} von $ip — wartet"); holdLoop(me, hashHex) }
+        else { log("pipe: $role ${hashHex.take(8)} von $ip — Partner da → brücke"); bridge(partner!!, me, hashHex) }
+    }
+
+    private fun pruneEmpty(map: HashMap<String, ArrayDeque<Conn>>, hash: String) {
+        map[hash]?.let { if (it.isEmpty()) map.remove(hash) }
     }
 
     /** Hält eine allein wartende Verbindung am Leben: puffert ihre Bytes, schickt periodisch Keepalives,
@@ -111,8 +125,11 @@ class BeamPipe(
                 if (now - started > maxHoldMs) { log("pipe: ${hashHex.take(8)} Hold-Timeout"); break }
             }
         } catch (e: Exception) { /* fällt durch */ }
-        if (me.partner == null) {                            // tot/abgelaufen ohne Partner → aufräumen
-            synchronized(waiting) { if (waiting[hashHex] === me) waiting.remove(hashHex) }
+        if (me.partner == null) {                            // tot/abgelaufen ohne Partner → aus Schlange raus
+            synchronized(pairLock) {
+                if (me.isSeeder) { seederQ[hashHex]?.remove(me); pruneEmpty(seederQ, hashHex) }
+                else { receiverQ[hashHex]?.remove(me); pruneEmpty(receiverQ, hashHex) }
+            }
             me.socket.closeQuietly()
         }
         me.holdDone.countDown()                              // Socket ist freigegeben (wird nicht mehr hier gelesen)

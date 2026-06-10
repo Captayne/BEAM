@@ -40,8 +40,13 @@ fun main(args: Array<String>) {
     log("Beam-Relay-Station startet — Tracker :$trackerPort, Byte-Pipe :$pipePort")
     val tracker = BeamTracker(trackerPort, trackerToken, forceRelayPeer = forcePeer)
     runCatching { tracker.start() }.onFailure { log("Tracker-Start FEHLER (:$trackerPort): ${it.message}") }
-    runCatching { BeamPipe(pipePort) { nogate || tracker.knows(it) }.start() }
-        .onFailure { log("Pipe-Start FEHLER (:$pipePort): ${it.message}") }
+    runCatching {
+        BeamPipe(
+            pipePort,
+            isAllowed = { nogate || tracker.knows(it) },
+            isSeederIp = { h, ip -> tracker.isSeederIp(h, ip) }
+        ).start()
+    }.onFailure { log("Pipe-Start FEHLER (:$pipePort): ${it.message}") }
 
     // Prozess am Leben halten — die Server laufen auf eigenen Threads.
     while (true) { try { Thread.sleep(3_600_000) } catch (_: InterruptedException) {} }

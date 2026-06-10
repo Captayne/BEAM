@@ -35,12 +35,24 @@ class BeamTracker(
     // infohash(hex) -> (peer -> lastSeenMillis)
     private val swarms = ConcurrentHashMap<String, ConcurrentHashMap<PeerKey, Long>>()
 
+    // "hashHex|ip" -> Ablaufzeit. Markiert die IP, die per Relay-Now als SENDER registriert ist
+    // (Schalter-Druck der App ruft /<token>/seed). So unterscheidet die Pipe Sender↔Empfänger.
+    private val seederReg = ConcurrentHashMap<String, Long>()
+    private val seederTtlMs = 10 * 60_000L
+
     /** Kennt der Tracker diesen Infohash (mind. ein aktuell angemeldeter Peer)? → Gate für die Byte-Pipe. */
     fun knows(hashHex: String): Boolean = swarms[hashHex]?.isNotEmpty() ?: false
+
+    /** Ist [ip] für [hashHex] aktuell als Sender registriert (Relay-Now)? → Rollen-Erkennung der Pipe. */
+    fun isSeederIp(hashHex: String, ip: String): Boolean =
+        (seederReg["$hashHex|$ip"] ?: 0L) > System.currentTimeMillis()
 
     fun start() {
         val server = HttpServer.create(InetSocketAddress(port), 0)
         server.createContext("/$token/announce") { ex -> safe(ex) { handleAnnounce(ex) } }
+        // Relay-Now: der Sender registriert sich token-gated als SEEDER für einen Hash (Rollen-Signal
+        // für die Pipe; später der Briefmarken-Verbuchungspunkt). Keine Portfreigabe nötig (alles raus).
+        server.createContext("/$token/seed") { ex -> safe(ex) { handleSeed(ex) } }
         // Token-gated MSI-Auslieferung: NUR Beam (kennt das Token) kann die PC-Version vom VPS holen,
         // um sie weiterzuverteilen. Kein öffentlicher Download (Bandbreiten-/Leech-Schutz).
         server.createContext("/$token/Beam.msi") { ex -> safe(ex) { serveFile(ex, java.io.File("/root/beam-dist/Beam.msi"), "application/x-msi") } }
@@ -68,6 +80,17 @@ class BeamTracker(
         ex.sendResponseHeaders(200, f.length())
         ex.responseBody.use { out -> f.inputStream().use { it.copyTo(out) } }
         log("MSI ausgeliefert: ${f.name} (${humanBytes(f.length())})")
+    }
+
+    /** Registriert die Verbindungs-IP als Sender für `hash` (40-Hex). Antwort schlicht „ok". */
+    private fun handleSeed(ex: HttpExchange) {
+        val params = parseRawQuery(ex.requestURI.rawQuery ?: "")
+        val hashHex = params["hash"]?.let { String(it, Charsets.US_ASCII).lowercase() }
+        if (hashHex == null || hashHex.length != 40) { respond(ex, "bad hash\n".toByteArray()); return }
+        val ip = ex.remoteAddress.address.hostAddress
+        seederReg["$hashHex|$ip"] = System.currentTimeMillis() + seederTtlMs
+        respond(ex, "ok\n".toByteArray())
+        log("SEEDER registriert: ${hashHex.take(8)} von $ip (TTL ${seederTtlMs / 1000}s)")
     }
 
     private fun handleAnnounce(ex: HttpExchange) {
@@ -115,6 +138,7 @@ class BeamTracker(
             swarm.entries.removeIf { now - it.value > peerTtlMs }
             if (swarm.isEmpty()) swarms.remove(hash)
         }
+        seederReg.entries.removeIf { it.value < now }
     }
 
     private inline fun safe(ex: HttpExchange, block: () -> Unit) {

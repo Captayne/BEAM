@@ -147,9 +147,27 @@ class SeedingService : Service() {
             // Versuch genug Zeit war, dass die Röhre paaren + Handshake/Metadaten austauschen konnte.
             if (!TorrentManager.isRelayConnected(e.infoHash, ep.host) && now - e.lastRelayDial > 15_000L) {
                 e.lastRelayDial = now
-                Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = e.relayEngaged) }.start()
+                val isSender = !e.isDownload && e.relayEngaged
+                Thread {
+                    if (isSender) registerSeeder(ep.host, e.infoHash)   // Reg frisch halten → nächster Empfänger
+                    TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = e.relayEngaged)
+                }.start()
             }
         }
+    }
+
+    /** Registriert die eigene IP token-gated als SENDER für [hash] bei der Station (Rollen-Signal der
+     *  Byte-Pipe → Sender↔Empfänger statt Mis-Pairing). Idempotent, kurz; Fehler werden nur geloggt. */
+    private fun registerSeeder(host: String, hash: String) {
+        runCatching {
+            val url = java.net.URL(de.systragon.beam.core.RelayConfig.seedUrl(hash, host))
+            (url.openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 8000; readTimeout = 8000
+                inputStream.use { it.readBytes() }
+                disconnect()
+            }
+            Log.i("SeedingService", "Relay: als Sender registriert (${hash.take(8)})")
+        }.onFailure { Log.w("SeedingService", "Relay /seed fehlgeschlagen: ${it.message}") }
     }
 
     private fun maybeAdjustTransport() {
@@ -464,6 +482,7 @@ class SeedingService : Service() {
                     val ep = de.systragon.beam.core.RelayConfig.parse(
                         runCatching { java.io.File(getExternalFilesDir(null), "relay.conf").takeIf { it.exists() }?.readText() }.getOrNull()
                     )
+                    registerSeeder(ep.host, hash)   // Sender-Rolle bei der Station anmelden, DANN verbinden
                     TorrentManager.engageRelay(hash, ep.host, ep.port)
                 }.start()
             }

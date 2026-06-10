@@ -107,6 +107,17 @@ private fun registerSendTo() {
         beamLog("SendTo: 'Beam!' geprüft/angelegt (exe=$appPath)")
     }.onFailure { beamLog("SendTo-Registrierung fehlgeschlagen: ${it.message}") }
 }
+
+/** Registriert die eigene IP token-gated als SENDER für [hash] bei der Station (Rollen-Signal der Pipe). */
+private fun registerSeeder(host: String, hash: String) {
+    runCatching {
+        val conn = java.net.URL(de.systragon.beam.core.RelayConfig.seedUrl(hash, host)).openConnection() as java.net.HttpURLConnection
+        conn.connectTimeout = 8000; conn.readTimeout = 8000
+        conn.inputStream.use { it.readBytes() }
+        conn.disconnect()
+        beamLog("Relay: als Sender registriert (${hash.take(8)})")
+    }.onFailure { beamLog("Relay /seed fehlgeschlagen: ${it.message}") }
+}
 private val downloadDir = File(System.getProperty("user.home"), "Downloads/Beam").apply { mkdirs() }
 private val workDir = File(System.getProperty("java.io.tmpdir"), "beam-desktop").apply { mkdirs() }
 // Editierbare, persistente Tracker-Liste (Datei `Downloads/Beam/trackers.txt`); Default = unsere Liste
@@ -136,7 +147,8 @@ private data class UiTransfer(
     val statusText: String,
     val progress: Float,      // 0..1, oder -1 = unbestimmt/seeding
     val showProgress: Boolean,
-    val directBlocked: Boolean = false   // Gegenüber bekannt, aber keine direkte Verbindung → Relay anbieten
+    val directBlocked: Boolean = false,  // Gegenüber bekannt, aber keine direkte Verbindung → Relay anbieten
+    val relayEngaged: Boolean = false    // Sender hat Relay-ON für diese Karte → Button grün
 )
 
 // Geduld, bevor „direkt blockiert" gemeldet wird (ab dem Moment, wo das Gegenüber bekannt wurde).
@@ -369,7 +381,11 @@ private fun BeamApp(initialPaths: List<String>) {
                             } else if (!TorrentManager.isRelayConnected(e.infoHash, ep.host) &&
                                        nowMs - e.lastRelayDial > 15_000L) {
                                 e.lastRelayDial = nowMs
-                                Thread { TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = e.relayEngaged) }.start()
+                                val isSender = !e.isDownload && e.relayEngaged
+                                Thread {
+                                    if (isSender) registerSeeder(ep.host, e.infoHash)   // Reg frisch halten
+                                    TorrentManager.engageRelay(e.infoHash, ep.host, ep.port, exclusive = e.relayEngaged)
+                                }.start()
                             }
                         }
                         UiTransfer(
@@ -380,7 +396,8 @@ private fun BeamApp(initialPaths: List<String>) {
                                          else statusText(e.isDownload, meta, finished, peers, rate, prog, e.trackerWorking),
                             progress = prog,
                             showProgress = e.isDownload && !finished,
-                            directBlocked = blocked
+                            directBlocked = blocked,
+                            relayEngaged = e.relayEngaged
                         )
                     }
                 // Backup-Downloads: ALLE Dateien flach in den gewählten Ordner (User-Wunsch:
@@ -647,11 +664,21 @@ private fun TransferCard(t: UiTransfer, beamPath: String?) {
                 // Relay-Button NUR beim SENDER. Der Empfänger lauscht ohnehin automatisch am Relay
                 // (Re-Dial in der Poll-Schleife), sobald er den Hash kennt → kein Button (User-Entscheid).
                 if (!t.isDownload) {
-                    val engage = { Thread { val ep = relayEndpoint(); TorrentManager.engageRelay(t.infoHash, ep.host, ep.port) }.start(); Unit }
-                    if (t.directBlocked) {
-                        Button(onClick = engage) { Text("📡 Send via Relay") }   // hervorgehoben, wenn direkt blockiert
-                    } else {
-                        TextButton(onClick = engage) { Text("📡 Relay NOW!") }
+                    // Relay-ON gilt für die ganze Karte (bedient alle Empfänger nacheinander), bis „Remove".
+                    val engage = {
+                        Thread {
+                            val ep = relayEndpoint()
+                            registerSeeder(ep.host, t.infoHash)   // Sender-Rolle anmelden, DANN verbinden
+                            TorrentManager.engageRelay(t.infoHash, ep.host, ep.port)
+                        }.start(); Unit
+                    }
+                    when {
+                        t.relayEngaged -> Button(
+                            onClick = engage,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                        ) { Text("📡 Relay ON") }                                  // grün = aktiv
+                        t.directBlocked -> Button(onClick = engage) { Text("📡 Send via Relay") }
+                        else -> TextButton(onClick = engage) { Text("📡 Relay NOW!") }
                     }
                 }
                 Spacer(Modifier.weight(1f))
