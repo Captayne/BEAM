@@ -30,7 +30,7 @@ Pflicht.
 | # | Titel | Worum es geht |
 |---|---|---|
 | **1** | [Warum dezentral?](01-warum-dezentral.md) | Die Motivation, die Ethik, der Haken, der dich packt. |
-| 2 | Wie das Netz *wirklich* verbindet | IP, NAT, CGNAT — warum sich zwei Handys nicht finden. |
+| **2** | [Wie das Netz *wirklich* verbindet](02-wie-das-netz-verbindet.md) | IP, NAT, CGNAT — warum sich zwei Handys nicht finden. |
 | 3 | Auf Riesen stehen: BitTorrent | Ein herrenloses Protokoll wiederverwenden statt neu erfinden. |
 | 4 | Durch die Wand: das Relay | Systemdesign + Kreativität (der „synthetische Handshake"). |
 | 5 | Vertrauen & Geheimnis | Kryptografie — und ein *ehrliches* Bedrohungsmodell. |
