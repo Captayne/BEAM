@@ -283,7 +283,14 @@ private fun BeamApp(initialPaths: List<String>) {
             lastBackupDir = root
             root.apply { mkdirs() }
         } else downloadDir
-        val entry = TorrentManager.addAndStartDownload(link.magnet ?: BeamLink.toMagnet(link), saveDir, trackers())
+        // Portablen (geteilten) Magnet behalten, aber den Peer-Hint aus dem Dateinamen als
+        // &x.pe=ip:port dranhängen → direktes LAN-connect_peer (sonst wartet der PC-Empfänger
+        // rein auf Tracker/DHT/LSD und hängt im selben WLAN, bis man „Reconnect" drückt).
+        val base = link.magnet ?: BeamLink.toMagnet(link)
+        val magnet = link.peerHint
+            ?.let { seg -> PeerHint.decode(seg)?.let { "$base&x.pe=$it" } }
+            ?: base
+        val entry = TorrentManager.addAndStartDownload(magnet, saveDir, trackers())
             ?: run { status = "Failed to start download."; return }
         saveDirs[entry.infoHash] = saveDir
         if (link.backup) backupHashes += entry.infoHash
