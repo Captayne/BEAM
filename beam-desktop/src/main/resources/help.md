@@ -42,6 +42,10 @@ Trackers help sender and receiver find each other. Open "🛰️ Trackers (advan
 • Keep the sending PC awake (disable sleep) until the receiver is done.
 • Company networks with strict firewalls / deep packet inspection can block the relay — a home or mobile network is more reliable.
 
+🏢 Behind a company network?
+If a transfer won't connect even with the relay engaged, you may be behind more than a simple firewall. Many companies run professional security layers (e.g. Zscaler — a corporate proxy that inspects all traffic and only lets through company-approved software). Beam's peer-to-peer traffic is blocked there by design; the app cannot get around it.
+Tip: switch to a phone hotspot, or work from home. There, even on a company VPN, normal web traffic usually goes out directly past the VPN (split tunneling) — and so does Beam.
+
 The window is a compact box you can resize freely; it remembers nothing you don't want it to — no cloud, no account.
 
 Copyright 2026, faithfully  Dr. Andreas Keibel

@@ -280,6 +280,14 @@ Build-Verzeichnis gesperrt. Auto-Version in `beam-desktop/version.properties`.
 16. **Mülltonne löschte nur 1 von N**: Bei einem Bündel hielt der Empfang nur die LETZTE Medien-URI →
     die Mülltonne löschte nur eine Datei. **Fix:** `TorrentEntry.savedUris` sammelt ALLE publish-URIs;
     „Throw" löscht alle.
+17. **Corporate DPI / Zscaler blockt P2P trotz „offener" Ports**: Im KUKA-Firmennetz war der Port-Test
+    (`Test-NetConnection`) auf :80 und :443 grün, aber Beam übertrug **nichts** (rein wie raus). **Diagnose
+    aus dem Relay-Log:** :80 (HTTP-Tracker, `announce`/`seed`) kam durch — die Quell-IPs `147.161.x` sind
+    **Zscaler** (Cloud-Proxy mit SSL-Inspection, durch den KUKA leitet); aber die :443-Byte-Röhre (rohes
+    BitTorrent, kein TLS) tauchte **nie** im Pipe-Log auf → von der DPI vor/während des Handshakes
+    resettet. **Lektion:** Ein grüner Port-Test prüft nur **L4** (TCP-Handshake), nicht das **L7-Protokoll**.
+    Gegen TLS-intercepting Proxies hilft auch TLS-Wrapping nicht (Corporate-Root-CA entschlüsselt mit). →
+    als **Grenze dokumentiert** (Hotspot/Homeoffice), nicht „gefixt" — die Firewall macht ihren Job.
 
 ---
 

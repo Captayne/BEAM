@@ -47,6 +47,10 @@ Trackers help sender and receiver find each other. You can edit the tracker list
 • On mobile data: disable "Data Saver" for Beam (or allow unrestricted data), otherwise transfers get throttled.
 • Keep the sending phone awake/charging until the receiver is done.
 
+🏢 Behind a company network?
+If a transfer won't connect even with the relay engaged, you may be behind more than a simple firewall. Many companies run professional security layers (e.g. Zscaler — a corporate proxy that inspects all traffic and only lets through company-approved software). Beam's peer-to-peer traffic is blocked there by design; the app cannot get around it.
+Tip: switch to a phone hotspot, or work from home. There, even on a company VPN, normal web traffic usually goes out directly past the VPN (split tunneling) — and so does Beam.
+
 If you choose to compress videos, you can keep the compressed copies — then they are not deleted when the activity-card is removed.
 
 Copyright 2026, faithfully  Dr. Andreas Keibel
