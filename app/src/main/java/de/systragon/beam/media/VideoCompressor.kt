@@ -27,17 +27,45 @@ import java.io.File
 @UnstableApi
 object VideoCompressor {
 
+    /**
+     * `height` ist eine **Obergrenze**: eine Stufe greift nur, wenn sie *kleiner* als die kürzere
+     * Seite der Quelle ist (siehe [needsCompression]) — nie hochskaliert. FPS bleibt Original.
+     * Muss identisch zur Desktop-Leiter bleiben (`beam-desktop/.../VideoCompressor.kt`).
+     */
     enum class CompressionLevel(
         val label: String,
         val tag: String,
         val height: Int,
         val bitrate: Int
     ) {
-        ORIGINAL("Original (no compression)", "", 0, 0),
-        Q50("Reduced — 720p (recommended)", "Q50", 720, 2_500_000),
-        Q25("Small — 480p", "Q25", 480, 1_200_000),
-        Q10("Very small — 360p", "Q10", 360, 600_000),
-        Q5("Preview — 180p", "Q5", 180, 200_000)
+        ORIGINAL("Original", "", 0, 0),
+        UHD4K("4K", "4K", 2160, 16_000_000),
+        FHD("FHD", "FHD", 1080, 5_000_000),
+        HD720("720p", "720p", 720, 2_500_000),
+        SD360("360p", "360p", 360, 600_000),
+        PREVIEW("180p", "180p", 180, 200_000)
+    }
+
+    /** Kürzere Seite (die „p"-Zahl, orientierungsunabhängig) der Quelle. Null, wenn nicht lesbar. */
+    fun sourceShortSide(context: Context, uri: Uri): Int? {
+        val r = android.media.MediaMetadataRetriever()
+        return try {
+            r.setDataSource(context, uri)
+            val w = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
+            val h = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
+            if (w != null && h != null) minOf(w, h) else (h ?: w)
+        } catch (_: Exception) {
+            null
+        } finally {
+            try { r.release() } catch (_: Exception) {}
+        }
+    }
+
+    /** True nur, wenn eine echte Stufe gewählt ist UND sie kleiner als die Quelle ist (sonst Original). */
+    fun needsCompression(context: Context, uri: Uri, level: CompressionLevel): Boolean {
+        if (level == CompressionLevel.ORIGINAL) return false
+        val short = sourceShortSide(context, uri) ?: return true   // unlesbar → Wunsch respektieren
+        return level.height < short
     }
 
     private var transformer: Transformer? = null

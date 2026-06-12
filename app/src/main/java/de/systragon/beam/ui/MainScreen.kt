@@ -413,7 +413,7 @@ private fun EncryptionBar(
         // Video-Komprimierungsstufe (links) + „BEAM! it" (rechts)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Video quality:",
+                "Quality:",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

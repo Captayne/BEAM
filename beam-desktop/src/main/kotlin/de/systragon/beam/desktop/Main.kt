@@ -222,7 +222,8 @@ private fun BeamApp(initialPaths: List<String>) {
                 val level = compressionLevel
                 val prepared: List<File> = if (level == VideoCompressor.CompressionLevel.ORIGINAL) sourceFiles
                     else sourceFiles.map { f ->
-                        if (!VideoCompressor.isVideo(f)) return@map f
+                        // Nur komprimieren, wenn die Stufe kleiner als das vorliegende Video ist.
+                        if (!VideoCompressor.isVideo(f) || !VideoCompressor.needsCompression(f, level)) return@map f
                         val out = File(workDir, "${f.nameWithoutExtension}_${level.tag}.mp4")
                         status = "Compressing ${f.name}…"
                         val ok = VideoCompressor.compress(f, level, out) { p ->
@@ -578,7 +579,7 @@ private fun BeamApp(initialPaths: List<String>) {
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Video quality:",
+                        "Quality:",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

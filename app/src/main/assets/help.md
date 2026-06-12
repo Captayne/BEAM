@@ -5,7 +5,7 @@ Beam sends your original files — full quality, no cloud, no account — phone 
 Beam is a file-sharing application to share files, from small to enormous, smartphone to smartphone (or to/from a PC), using the torrent network. It is intended not to lose any meta information stored in the files — like the location of photos, the real file name, the device used… just the original file.
 
 📤 How to Send
-To share file(s), pick Beam! using the standard sharing mechanism. For large videos you can choose to reduce the quality/size first.
+To share file(s), pick Beam! using the standard sharing mechanism. For large videos you can pick a lower "Quality" first: 4K · FHD · 720p · 360p · 180p. It only ever shrinks — a level is applied only if it is smaller than the video, otherwise the original is sent untouched (never upscaled). Frame rate stays original.
 Beam! creates a small .beam file which contains the unique HASH code for identification — send this to a friend via any app (WhatsApp, email, …), again using the standard sharing mechanism.
 On PC: select files and use "Send to → Beam!", or open Beam and press "Choose file(s)".
 
@@ -17,7 +17,7 @@ Instead of picking hundreds of files, you just share one file from the START and
 • e.g. in your gallery, select the FIRST photo (at the airport) and the LAST one (back home on the balcony) and share them to Beam!.
 • On the "Ready to send" card, tick "Chrono". Beam takes the oldest and newest of your marked files as the time span and automatically adds EVERYTHING in between — photos, videos, even WhatsApp pictures and screenshots from those days.
 • The card updates live as you toggle Chrono, showing the file count, total size and the exact time span — so you can check the span is right before you press BEAM!.
-Chronology sends your ORIGINALS, unless you choose a lower "Video quality" in this mode. Beam only offers to compress videos, because more and more recordings are in 4K or even 8K, which dramatically increases data volumes. Tip: keep the phone charging — large events take a while.
+Chronology sends your ORIGINALS, unless you choose a lower "Quality" in this mode. Beam only offers to compress videos, because more and more recordings are in 4K or even 8K, which dramatically increases data volumes. Tip: keep the phone charging — large events take a while.
 
 📥 Receive
 Open the received xyz###.beam file with the Beam! app — or on PC: in WhatsApp just click the beam-message and the app should come up and start.

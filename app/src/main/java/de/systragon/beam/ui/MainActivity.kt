@@ -285,7 +285,7 @@ class MainActivity : ComponentActivity() {
             val (fileName, _) = readFileMetadata(uri)
             val mime = contentResolver.getType(uri) ?: MediaStoreSaver.guessMime(fileName)
             val level = viewModel.effectiveCompressionLevel()
-            if (mime.startsWith("video/") && level != VideoCompressor.CompressionLevel.ORIGINAL) {
+            if (mime.startsWith("video/") && VideoCompressor.needsCompression(this, uri, level)) {
                 compressThenSend(uri, fileName, level)   // Main-Thread (Transformer braucht Looper)
             } else {
                 Thread { processSendFile(uri) }.start()
@@ -356,7 +356,7 @@ class MainActivity : ComponentActivity() {
         val mime = contentResolver.getType(uri) ?: MediaStoreSaver.guessMime(name)
         val level = viewModel.effectiveCompressionLevel()
 
-        if (mime.startsWith("video/") && level != VideoCompressor.CompressionLevel.ORIGINAL) {
+        if (mime.startsWith("video/") && VideoCompressor.needsCompression(this, uri, level)) {
             val base = name.substringBeforeLast('.', name)
             val out = File(bundleDir, "${base}_${level.tag}.mp4")
             VideoCompressor.compress(

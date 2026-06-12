@@ -12,18 +12,47 @@ import java.io.File
  */
 object VideoCompressor {
 
-    /** Identisch zu Android (Label/Tag/Höhe/Bitrate), damit beide Plattformen gleich aussehen. */
+    /**
+     * Identisch zu Android (Label/Tag/Höhe/Bitrate), damit beide Plattformen gleich aussehen.
+     * `height` ist eine **Obergrenze**: eine Stufe greift nur, wenn sie *kleiner* als die kürzere
+     * Seite der Quelle ist (siehe [needsCompression]) — nie hochskaliert. FPS bleibt Original.
+     */
     enum class CompressionLevel(
         val label: String,
         val tag: String,
         val height: Int,
         val bitrate: Int
     ) {
-        ORIGINAL("Original (no compression)", "", 0, 0),
-        Q50("Reduced — 720p (recommended)", "Q50", 720, 2_500_000),
-        Q25("Small — 480p", "Q25", 480, 1_200_000),
-        Q10("Very small — 360p", "Q10", 360, 600_000),
-        Q5("Preview — 180p", "Q5", 180, 200_000)
+        ORIGINAL("Original", "", 0, 0),
+        UHD4K("4K", "4K", 2160, 16_000_000),
+        FHD("FHD", "FHD", 1080, 5_000_000),
+        HD720("720p", "720p", 720, 2_500_000),
+        SD360("360p", "360p", 360, 600_000),
+        PREVIEW("180p", "180p", 180, 200_000)
+    }
+
+    /**
+     * Kürzere Seite (die „p"-Zahl, orientierungsunabhängig) der Quelle via gebündeltem ffmpeg.
+     * `ffmpeg -i` schreibt die Stream-Infos auf stderr (und endet mit Fehler „no output" — egal,
+     * wir lesen nur die Auflösung). Null, wenn nicht lesbar.
+     */
+    fun sourceShortSide(f: File): Int? = try {
+        val p = ProcessBuilder(ffmpegExe(), "-hide_banner", "-i", f.absolutePath)
+            .redirectErrorStream(true).start()
+        val text = p.inputStream.bufferedReader().readText()
+        p.waitFor()
+        Regex("""Video:.*?[, ](\d{2,5})x(\d{2,5})""").find(text)?.let { m ->
+            val w = m.groupValues[1].toIntOrNull()
+            val h = m.groupValues[2].toIntOrNull()
+            if (w != null && h != null) minOf(w, h) else null
+        }
+    } catch (_: Exception) { null }
+
+    /** True nur, wenn eine echte Stufe gewählt ist UND sie kleiner als die Quelle ist (sonst Original). */
+    fun needsCompression(f: File, level: CompressionLevel): Boolean {
+        if (level == CompressionLevel.ORIGINAL) return false
+        val short = sourceShortSide(f) ?: return true   // unlesbar → Wunsch respektieren
+        return level.height < short
     }
 
     private val VIDEO_EXT = setOf(

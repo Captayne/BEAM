@@ -6,7 +6,7 @@ Beam is a file-sharing application to share files, from small to enormous, betwe
 
 📤 How to Send
 Press "Choose file(s)" and pick what you want to share — or in Windows Explorer use "Send to → Beam!", or simply drag the files onto the Beam window.
-For large videos you can pick a lower "Video quality" first.
+For large videos you can pick a lower "Quality" first: 4K · FHD · 720p · 360p · 180p. It only ever shrinks — a level is applied only if it is smaller than the source video, otherwise the original is sent untouched (never upscaled). Frame rate stays original.
 Beam creates a small .beam file which contains the unique HASH code for identification. Share it with a friend with "Share (copy .beam)" (then paste it into WhatsApp / e-mail), or "Show in Explorer" to grab the file yourself.
 
 Your sending PC is the Server! It needs to stay awake and online so the receiver(s) can download the data from it — so don't let it go to sleep until they are done. If a direct connection isn't possible, a relay (📡) steps in, see below.
@@ -16,7 +16,7 @@ The easy way to send the media of an entire event, trip, party or day — e.g. a
 Instead of picking hundreds of files, just select one file from the START and one from the END of the event (e.g. the first and the last photo), then tick "Send Chronology".
 • Beam takes the oldest and newest of your selected files as the time span and automatically adds EVERYTHING in between (same folder).
 • The preview updates live: file count, total size and the exact time span — so you see exactly what will be sent before you press BEAM!.
-Chronology uses the files' modification date and sends your ORIGINALS, unless you choose a lower "Video quality" (then only the videos are compressed, photos stay 1:1).
+Chronology uses the files' modification date and sends your ORIGINALS, unless you choose a lower "Quality" (then only the videos are compressed, photos stay 1:1).
 
 📥 Receive
 Press "Open .beam" and pick the received xyz###.beam file — or just double-click a saved .beam.
