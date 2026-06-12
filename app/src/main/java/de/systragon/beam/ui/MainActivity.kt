@@ -490,9 +490,10 @@ class MainActivity : ComponentActivity() {
         // 2) Fallback: Inhalt lesen (falls ein Messenger den Namen umbenannt/gekürzt hat).
         val magnet = magnetFromBeamFileName(displayName)
             ?: readBeamFileContent(uri)?.let { magnetFromBeamContent(it) }
+        val tag = de.systragon.beam.core.BeamLink.parseName(displayName)?.tag   // optionales Info-Tag aus dem Namen
 
         if (magnet != null) {
-            startDownload(magnet)
+            startDownload(magnet, tag)
         } else {
             runOnUiThread {
                 Toast.makeText(this, "Not a valid Beam file", Toast.LENGTH_SHORT).show()
@@ -544,12 +545,13 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Magnetlink an den Service übergeben — Download landet erst in einem app-privaten Ordner. */
-    private fun startDownload(magnetUri: String) {
+    private fun startDownload(magnetUri: String, tag: String? = null) {
         val saveDir = File(filesDir, "incoming").apply { mkdirs() }
         val serviceIntent = Intent(this, SeedingService::class.java).apply {
             action = SeedingService.ACTION_ADD_MAGNET
             putExtra(SeedingService.EXTRA_MAGNET_URI, magnetUri)
             putExtra(SeedingService.EXTRA_FILE_DIR, saveDir.absolutePath)
+            tag?.let { putExtra(SeedingService.EXTRA_TAG, it) }
         }
         startForegroundService(serviceIntent)
     }
@@ -625,9 +627,11 @@ class MainActivity : ComponentActivity() {
         var core = if (hint != null) "$fileName.$infoHash.$hint" else "$fileName.$infoHash"
         // Chronologie- ODER Direct-Access-Backup → .bk-Token anhängen, damit der PC-Empfänger nach dem
         // Zielordner (z. B. NAS-Bildersammlung) fragt, statt stumpf in Download/Beam zu legen.
+        de.systragon.beam.core.BeamLink.tagSegment(viewModel.sendTag.value)?.let { core += ".$it" }
         if (viewModel.chronologyMode.value || viewModel.directAccess.value) core += ".bk"
         val beamFile = File(linksDir, "$core.beam")
         beamFile.writeText(magnetLink)
+        viewModel.clearSendTag()   // Tag ist pro Transfer → nach dem Erzeugen des .beam zurücksetzen
 
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", beamFile)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {

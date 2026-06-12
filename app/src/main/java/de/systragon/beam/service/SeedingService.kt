@@ -39,6 +39,7 @@ class SeedingService : Service() {
         const val EXTRA_FILE_SIZE    = "file_size"
         const val EXTRA_INFO_HASH    = "info_hash"
         const val EXTRA_MAGNET_URI   = "magnet_uri"
+        const val EXTRA_TAG          = "extra_tag"   // optionales Info-Tag (Empfang) → Anzeige auf der Karte
 
         const val CHANNEL_ID        = "beam_seeding"
         const val CHANNEL_DONE_ID   = "beam_done"
@@ -484,6 +485,7 @@ class SeedingService : Service() {
 
                 resetTransportBaseline()
                 val entry = TorrentManager.addAndStartDownload(magnetUri, File(fileDir), loadTrackers())
+                entry?.let { it.tag = intent.getStringExtra(EXTRA_TAG) }   // optionales Info-Tag → oben auf der Karte
                 updateNotification(
                     if (entry != null) "⬇ Download starting: ${entry.fileName}"
                     else "❌ Invalid link"

@@ -53,5 +53,6 @@ data class TorrentEntry(
     var mediaOnly: Boolean = false,   // empfangene Datei(en) sind ausschließlich Bild/Video → Galerie öffnen
     var galleryMime: String? = null,  // MIME des repräsentativen Medien-Elements (für „in Galerie öffnen")
     var trackerWorking: Boolean = false, // mind. ein Tracker liefert gerade (für granulare Statuszeile)
-    val createdAt: Long = System.currentTimeMillis() // Anlage-Zeitpunkt → neueste Karte zuoberst
+    val createdAt: Long = System.currentTimeMillis(), // Anlage-Zeitpunkt → neueste Karte zuoberst
+    var tag: String? = null           // optionales Info-Tag (im .beam-Namen kodiert; Empfänger-Anzeige oben auf der Karte)
 )

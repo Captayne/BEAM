@@ -5,7 +5,7 @@ import java.io.File
 /**
  * Gemeinsame, plattformneutrale Helfer für das `.beam`-Format.
  *
- * Dateiname: `<Name>.<40hex-hash>[.pe<12hex>].beam`  (Hash + optionaler Peer-Hint stecken im Namen).
+ * Dateiname: `<Name>.<40hex-hash>[.pe<12hex>][.tg<hex>][.bk].beam`  (Hash + optionale Segmente im Namen).
  * Dateiinhalt: Magnetlink (Fallback, falls ein Messenger den Namen verändert).
  */
 data class BeamLink(
@@ -16,7 +16,10 @@ data class BeamLink(
     /** „Backup"-Sammlung (z. B. Zeitraum-Backup) → Empfänger soll nach dem Speicherort fragen
      *  (etwa NAS-Bildersammlung), statt stumpf in den Standard-Ordner zu legen. Kodiert als
      *  Flag-Segment `.bk` im Dateinamen (vor dem Download lesbar). */
-    val backup: Boolean = false
+    val backup: Boolean = false,
+    /** Optionales Info-Tag des Senders (max 20 Zeichen), als `.tg<hex>`-Segment im Dateinamen
+     *  kodiert → vor dem Download lesbar, beim Empfänger oben auf der Karte angezeigt. */
+    val tag: String? = null
 ) {
     fun fileName(): String = buildString {
         append(sanitizeFileName(displayName.ifBlank { "beam-file" }))
@@ -25,6 +28,10 @@ data class BeamLink(
         if (!peerHint.isNullOrBlank()) {
             append('.')
             append(peerHint)
+        }
+        tagSegment(tag)?.let {
+            append('.')
+            append(it)
         }
         if (backup) {
             append('.')
@@ -43,6 +50,37 @@ data class BeamLink(
     companion object {
         private val HASH = Regex("^[0-9a-fA-F]{40}$")
         private const val BK_SEGMENT = "bk"   // Flag-Segment für „Backup"-Sammlungen
+        private const val TG_PREFIX = "tg"    // Segment-Präfix fürs Info-Tag
+        private val TG = Regex("^tg([0-9a-fA-F]{2,})$")
+        /** Maximale Tag-Länge (Zeichen) — auch im UI begrenzt. */
+        const val TAG_MAX = 20
+
+        /**
+         * Kodiert ein optionales Info-Tag als Dateinamen-Segment `tg<hex>` (UTF-8 → Hex, damit
+         * Umlaute/Emoji/Sonderzeichen die punkt-getrennte Namensstruktur nicht zerschießen).
+         * Auf [TAG_MAX] Zeichen begrenzt; null bei leer/blank.
+         */
+        fun tagSegment(tag: String?): String? {
+            val t = tag?.trim()?.take(TAG_MAX)?.takeIf { it.isNotEmpty() } ?: return null
+            val sb = StringBuilder(TG_PREFIX)
+            for (b in t.toByteArray(Charsets.UTF_8)) sb.append("%02x".format(b.toInt() and 0xFF))
+            return sb.toString()
+        }
+
+        /** Erkennt ein Tag-Segment im Dateinamen. */
+        fun isTagSegment(s: String): Boolean = TG.matches(s)
+
+        /** Dekodiert ein `tg<hex>`-Segment zum Klartext-Tag, oder null. */
+        fun decodeTag(segment: String): String? {
+            val hex = TG.matchEntire(segment)?.groupValues?.get(1) ?: return null
+            if (hex.length % 2 != 0) return null
+            return try {
+                val bytes = ByteArray(hex.length / 2) { i -> hex.substring(i * 2, i * 2 + 2).toInt(16).toByte() }
+                String(bytes, Charsets.UTF_8).takeIf { it.isNotEmpty() }
+            } catch (_: Exception) {
+                null
+            }
+        }
 
         fun minimalMagnet(infoHash: String, displayName: String? = null): String {
             val dn = displayName?.takeIf { it.isNotBlank() }?.let { "&dn=" + urlEncodeLite(it) } ?: ""
@@ -59,8 +97,9 @@ data class BeamLink(
             val infoHash = parts[hashIndex].lowercase()
             val after = parts.drop(hashIndex + 1)
             val peerHint = after.firstOrNull { PeerHint.isSegment(it) }
+            val tag = after.firstOrNull { isTagSegment(it) }?.let { decodeTag(it) }
             val backup = after.any { it.equals(BK_SEGMENT, ignoreCase = true) }
-            return BeamLink(displayName, infoHash, peerHint, backup = backup)
+            return BeamLink(displayName, infoHash, peerHint, backup = backup, tag = tag)
         }
 
         /** Liest eine `.beam`-Datei (Name primär, Inhalt als Magnet-Fallback). */

@@ -89,6 +89,13 @@ class TorrentViewModel(application: Application) : AndroidViewModel(application)
     val chronologyMode: StateFlow<Boolean> = _chronologyMode
     fun setChronologyMode(on: Boolean) { _chronologyMode.value = on }
 
+    // Optionales Info-Tag fürs nächste Senden (max BeamLink.TAG_MAX): im .beam-Namen kodiert,
+    // beim Empfänger oben auf der Karte angezeigt. Nicht persistent; nach dem Senden geleert.
+    private val _sendTag = MutableStateFlow("")
+    val sendTag: StateFlow<String> = _sendTag
+    fun setSendTag(s: String) { _sendTag.value = s.take(de.systragon.beam.core.BeamLink.TAG_MAX) }
+    fun clearSendTag() { _sendTag.value = "" }
+
     /** True, wenn verschlüsselt werden soll — nicht im Chronologie- oder Direct-File-Access-Modus. */
     fun encryptionActive(): Boolean =
         _encryptEnabled.value && _passphrase.value.isNotBlank() &&

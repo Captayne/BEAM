@@ -66,6 +66,18 @@ fun main(args: Array<String>) {
             position = androidx.compose.ui.window.WindowPosition(androidx.compose.ui.Alignment.Center)
         )
         Window(onCloseRequest = ::exitApplication, state = winState, title = "Beam $BEAM_VERSION", icon = beamIcon) {
+            // Von einer anderen App gestartet (WhatsApp / „Senden an" / .beam-Doppelklick) → Windows
+            // hält das Fenster sonst im Hintergrund (Fokus-Klau-Schutz), es „poppt" erst Sekunden
+            // später auf. Kurzer Stoß holt es nach vorn → der Klick bewirkt sichtbar sofort etwas.
+            if (initialPaths.isNotEmpty()) {
+                LaunchedEffect(Unit) {
+                    kotlinx.coroutines.delay(400)
+                    window.toFront()
+                    window.isAlwaysOnTop = true
+                    window.isAlwaysOnTop = false
+                    window.requestFocus()
+                }
+            }
             // Kompaktere UI: Density runterskalieren → Schrift UND Abstände gleichmäßig kleiner.
             // Compose erbt sonst die (auf großen 4K-Monitoren oft hohe) Windows-Skalierung. Faktor
             // UI_SCALE justierbar (1.0 = Windows-Standard; kleiner = kompakter).
@@ -172,7 +184,8 @@ private data class UiTransfer(
     val showProgress: Boolean,
     val directBlocked: Boolean = false,  // Gegenüber bekannt, aber keine direkte Verbindung → Relay anbieten
     val relayEngaged: Boolean = false,   // Sender hat Relay-ON für diese Karte → Button grün
-    val relayWaiting: Int = 0            // wie viele Empfänger gerade hängen → Badge am Relay-Knopf
+    val relayWaiting: Int = 0,           // wie viele Empfänger gerade hängen → Badge am Relay-Knopf
+    val tag: String? = null              // optionales Info-Tag → oben auf der Karte
 )
 
 // Geduld, bevor „direkt blockiert" gemeldet wird (ab dem Moment, wo das Gegenüber bekannt wurde).
@@ -189,6 +202,7 @@ private fun BeamApp(initialPaths: List<String>) {
     var encryptOn by remember { mutableStateOf(false) }                            // Senden verschlüsseln?
     var compressionLevel by remember { mutableStateOf(VideoCompressor.CompressionLevel.ORIGINAL) } // Video-Qualität
     var backupMode by remember { mutableStateOf(false) }                           // .beam als Backup taggen → Empfänger wählt Zielordner
+    var sendTag by remember { mutableStateOf("") }                                 // optionales Info-Tag fürs nächste Senden (max BeamLink.TAG_MAX)
     val saveDirs = remember { mutableMapOf<String, File>() }                        // infoHash → Zielordner (Backup wählbar)
     val backupHashes = remember { mutableSetOf<String>() }                          // infoHash der Backup-Empfänge (Top-Ordner flach auflösen)
     val renamedBackup = remember { mutableSetOf<String>() }                         // Backup-Downloads, schon flach umbenannt
@@ -252,6 +266,7 @@ private fun BeamApp(initialPaths: List<String>) {
                 val created = TorrentFactory.createTorrent(target, workDir)
                     ?: run { status = "Torrent creation failed."; return@launch }
                 val mark = if (backupMode) " 🗓️" else if (encrypt) " 🔒" else ""
+                val cleanTag = sendTag.trim().take(BeamLink.TAG_MAX).ifBlank { null }
                 val entry = TorrentEntry(
                     infoHash = created.infoHash,
                     fileName = if (bundle) "${prepared.size} files$mark"
@@ -259,10 +274,12 @@ private fun BeamApp(initialPaths: List<String>) {
                     fileSize = prepared.sumOf { it.length() },
                     cachedFile = target,                 // Datei/Container ODER Bündel-Ordner (parent = savePath)
                     torrentFile = created.torrentFile,
-                    isDownload = false
+                    isDownload = false,
+                    tag = cleanTag                       // optionales Info-Tag → auch auf der Sender-Karte sichtbar
                 )
                 if (!TorrentManager.addAndStart(entry, trackers())) { status = "Failed to start seeding."; return@launch }
-                val beam = BeamLink(target.name, created.infoHash, PeerHint.localSegment(), created.magnet, backup = backupMode).writeTo(downloadDir)
+                val beam = BeamLink(target.name, created.infoHash, PeerHint.localSegment(), created.magnet, backup = backupMode, tag = cleanTag).writeTo(downloadDir)
+                sendTag = ""                             // Tag ist pro Transfer → nach dem Senden zurücksetzen
                 beamLinks = beamLinks + (created.infoHash to beam.absolutePath)
                 status = (if (bundle) "Bundle (${prepared.size} files) seeding" else "Seeding") +
                     (if (backupMode) " 🗓️ chronology" else if (encrypt) " 🔒 encrypted" else "") + " → ${beam.absolutePath}"
@@ -293,6 +310,7 @@ private fun BeamApp(initialPaths: List<String>) {
             ?: base
         val entry = TorrentManager.addAndStartDownload(magnet, saveDir, trackers())
             ?: run { status = "Failed to start download."; return }
+        entry.tag = link.tag        // optionales Info-Tag (aus .beam-Name) → oben auf der Empfänger-Karte
         saveDirs[entry.infoHash] = saveDir
         if (link.backup) backupHashes += entry.infoHash
         status = (if (link.backup) "Chronology → ${saveDir.absolutePath}: " else "Receiving: ") +
@@ -458,7 +476,8 @@ private fun BeamApp(initialPaths: List<String>) {
                             showProgress = e.isDownload && !finished,
                             directBlocked = blocked,
                             relayEngaged = e.relayEngaged,
-                            relayWaiting = e.relayWaiting
+                            relayWaiting = e.relayWaiting,
+                            tag = e.tag
                         )
                     }
                 // Backup-Downloads: ALLE Dateien flach in den gewählten Ordner (User-Wunsch:
@@ -575,6 +594,13 @@ private fun BeamApp(initialPaths: List<String>) {
                     label = { Text("Passphrase (encrypt when sending / decrypt when receiving)") },
                     singleLine = true,
                     enabled = !backupMode,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = sendTag,
+                    onValueChange = { sendTag = it.take(BeamLink.TAG_MAX) },
+                    label = { Text("Tag (optional, max ${BeamLink.TAG_MAX} — shown on the receiver's card)") },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -698,6 +724,11 @@ private fun BeamApp(initialPaths: List<String>) {
 private fun TransferCard(t: UiTransfer, beamPath: String?) {
     Card(shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(2.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
+            t.tag?.takeIf { it.isNotBlank() }?.let { tg ->
+                Text("🏷  $tg", style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, maxLines = 2)
+                Spacer(Modifier.height(6.dp))
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(if (t.isDownload) "⬇" else "⬆", color = if (t.isDownload) Blue else Green,
                     style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(end = 10.dp))

@@ -361,6 +361,7 @@ private fun EncryptionBar(
     val pending by viewModel.pendingSend.collectAsState()
     val chronologyOn by viewModel.chronologyMode.collectAsState()
     val directOn by viewModel.directAccess.collectAsState()
+    val sendTag by viewModel.sendTag.collectAsState()
     val summary by viewModel.pendingSummary.collectAsState()
     val context = LocalContext.current
     // Originale 1:1 (Chronologie ODER Direct File Access) → Verschlüsseln/Qualität deaktiviert.
@@ -449,6 +450,8 @@ private fun EncryptionBar(
                 summary = summary,
                 onChronologyChange = { viewModel.setChronologyMode(it); onChronologyToggled(it) },
                 onDirectChange = { viewModel.setDirectAccess(it); if (it && !viewModel.hasAllFilesAccess()) onRequestAllFiles() },
+                tag = sendTag,
+                onTagChange = { viewModel.setSendTag(it) },
                 onCancel = { viewModel.clearPendingSend() }
             )
         }
@@ -464,6 +467,8 @@ private fun PendingSummaryCard(
     summary: PendingSummary?,
     onChronologyChange: (Boolean) -> Unit,
     onDirectChange: (Boolean) -> Unit,
+    tag: String,
+    onTagChange: (String) -> Unit,
     onCancel: () -> Unit
 ) {
     Card(
@@ -490,6 +495,15 @@ private fun PendingSummaryCard(
                 Text("Direct File Access", style = MaterialTheme.typography.bodySmall)
                 Checkbox(checked = direct, onCheckedChange = onDirectChange)
             }
+            // Optionales Info-Tag → wird im .beam-Namen kodiert und beim Empfänger oben auf der Karte gezeigt.
+            OutlinedTextField(
+                value = tag,
+                onValueChange = onTagChange,
+                label = { Text("🏷 Tag (optional, max ${de.systragon.beam.core.BeamLink.TAG_MAX}) — shown to the receiver") },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+            )
             if (summary == null) {
                 Text("Scanning $label…", style = MaterialTheme.typography.bodySmall)
             } else {
@@ -671,6 +685,19 @@ fun TorrentCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
+
+            // Optionales Info-Tag des Senders — ganz oben, prominent (leer = nichts).
+            entry.tag?.takeIf { it.isNotBlank() }?.let { tg ->
+                Text(
+                    text = "🏷  $tg",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+            }
 
             // Kopfzeile: Richtungspfeil + Name + kompakte Statuszeile
             Row(verticalAlignment = Alignment.CenterVertically) {
