@@ -66,17 +66,24 @@ fun main(args: Array<String>) {
             position = androidx.compose.ui.window.WindowPosition(androidx.compose.ui.Alignment.Center)
         )
         Window(onCloseRequest = ::exitApplication, state = winState, title = "Beam $BEAM_VERSION", icon = beamIcon) {
-            // Von einer anderen App gestartet (WhatsApp / „Senden an" / .beam-Doppelklick) → Windows
-            // hält das Fenster sonst im Hintergrund (Fokus-Klau-Schutz), es „poppt" erst Sekunden
-            // später auf. Kurzer Stoß holt es nach vorn → der Klick bewirkt sichtbar sofort etwas.
-            if (initialPaths.isNotEmpty()) {
-                LaunchedEffect(Unit) {
-                    kotlinx.coroutines.delay(400)
+            // Beam-Fenster nach vorn holen (Windows hält es sonst im Hintergrund, Fokus-Klau-Schutz).
+            // Genutzt beim Start mit Datei-Argument UND bei Download-Abschluss („Done" sichtbar machen,
+            // falls Beam hinter dem Explorer-Fenster verborgen war).
+            val winScope = rememberCoroutineScope()
+            val bringToFront: () -> Unit = {
+                winScope.launch {
+                    // Windows blockt „nach vorn" für Hintergrund-Apps. Trick: kurz als Topmost setzen
+                    // (Z-Order erlaubt Windows) und erst nach ~1,2 s wieder lösen → kommt sichtbar nach vorn.
                     window.toFront()
                     window.isAlwaysOnTop = true
-                    window.isAlwaysOnTop = false
                     window.requestFocus()
+                    kotlinx.coroutines.delay(1200)
+                    window.isAlwaysOnTop = false
                 }
+                Unit
+            }
+            if (initialPaths.isNotEmpty()) {
+                LaunchedEffect(Unit) { kotlinx.coroutines.delay(400); bringToFront() }
             }
             // Kompaktere UI: Density runterskalieren → Schrift UND Abstände gleichmäßig kleiner.
             // Compose erbt sonst die (auf großen 4K-Monitoren oft hohe) Windows-Skalierung. Faktor
@@ -86,7 +93,7 @@ fun main(args: Array<String>) {
                 androidx.compose.ui.platform.LocalDensity provides
                     androidx.compose.ui.unit.Density(base.density * UI_SCALE, base.fontScale)
             ) {
-                BeamApp(initialPaths)
+                BeamApp(initialPaths, bringToFront)
             }
         }
     }
@@ -193,7 +200,7 @@ private const val RELAY_HINT_MS = 25_000L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BeamApp(initialPaths: List<String>) {
+private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
     val scheme = lightColorScheme(primary = Color(0xFF1976D2), onPrimary = Color.White)
     var status by remember { mutableStateOf("Starting session…") }
     var transfers by remember { mutableStateOf<List<UiTransfer>>(emptyList()) }
@@ -210,6 +217,7 @@ private fun BeamApp(initialPaths: List<String>) {
     var lastBackupDir by remember { mutableStateOf(downloadDir) }                   // zuletzt gewählter Backup-Zielordner (gemerkt)
     val resolved = remember { mutableSetOf<String>() }                             // bereits nachbearbeitete Downloads
     val peerSeenAt = remember { mutableMapOf<String, Long>() }                      // infoHash → wann Gegenüber zuerst bekannt (Grace-Timer)
+    val selectedFiles = remember { mutableMapOf<String, MutableSet<String>>() }     // infoHash → schon im Explorer markierte (fertige) Dateien
     val scope = rememberCoroutineScope()
     var pendingSend by remember { mutableStateOf<List<File>>(emptyList()) }        // vorgemerkt, wartet auf BEAM!-Knopf
 
@@ -250,7 +258,7 @@ private fun BeamApp(initialPaths: List<String>) {
                 val target: File = when {
                     bundle -> {
                         status = if (encrypt) "Encrypting & bundling ${prepared.size} files…" else "Bundling ${prepared.size} files…"
-                        stageBundle(prepared, encrypt, passphrase)
+                        stageBundle(prepared, encrypt, passphrase, sendTag)
                     }
                     encrypt -> {
                         // Encrypt a single file → opaque container (the real name is hidden inside).
@@ -366,9 +374,10 @@ private fun BeamApp(initialPaths: List<String>) {
                         }
                     }.start()
                 }
-                openFolder(dir)   // den vom Nutzer gewählten Ordner, nicht den (alten) bundle_…-Pfad
+                openFolder(dir)   // Backup: flach in den GEWÄHLTEN Zielordner aufgelöst → dieses Fenster zeigt das Endergebnis.
             } else {
-                openFolder(revealTarget?.parentFile ?: dir)
+                // Normalfall: v2 hat den Ordner beim Empfang schon offen + die fertigen Dateien markiert
+                // → KEIN zweites Fenster am Ende (User-Wunsch).
             }
         }
         return allOk
@@ -407,6 +416,10 @@ private fun BeamApp(initialPaths: List<String>) {
                         val finished = st?.isFinished ?: false
                         // Seeder: insgesamt ausgelieferte Menge als % der Dateigröße (kann >100% sein).
                         val sentPct = if (!e.isDownload && e.fileSize > 0) ((st?.totalUpload() ?: 0L) * 100 / e.fileSize).toInt() else 0
+                        // Empfang: fertige Dateien live im Explorer markieren (eintrudeln + sofort wegsortieren).
+                        // Backup-Empfänge ausgenommen — die werden am Ende flach in den Zielordner aufgelöst
+                        // (anderer Ordner) → dort öffnet resolveDownload das Endfenster.
+                        if (e.isDownload && meta && e.infoHash !in backupHashes) maybeSelectCompleted(e, selectedFiles)
                         // „Direkt blockiert"-Erkennung: Gegenüber bekannt (listPeers>0), aber keine
                         // Verbindung (numPeers==0) seit N s ab Auftauchen → Relay anbieten.
                         val listPeers = st?.listPeers() ?: 0
@@ -526,7 +539,7 @@ private fun BeamApp(initialPaths: List<String>) {
                 TorrentManager.getAll().forEach { e ->
                     if (e.isDownload && e.infoHash !in resolved) {
                         val fin = e.handle?.takeIf { it.isValid }?.status()?.isFinished ?: false
-                        if (fin && resolveDownload(e.infoHash)) resolved += e.infoHash
+                        if (fin && resolveDownload(e.infoHash)) { resolved += e.infoHash; bringToFront() }   // „Done" nach vorn holen
                     }
                 }
             }.onFailure { beamLog("poll loop error: ${it.stackTraceToString()}") }
@@ -815,6 +828,67 @@ private fun revealInExplorer(file: File) {
         .onFailure { println("[W] Explorer reveal failed: ${it.message}") }
 }
 
+/**
+ * PowerShell-Skript (via -EncodedCommand) zum Markieren von Dateien in einem offenen Explorer-Fenster.
+ * Ordner + Dateinamen kommen über die Datei in $env:BEAM_SEL_FILE (UTF-8, Zeile 1 = Ordner, Rest = Namen).
+ * SelectItem-Flag 9 = SVSI_SELECT|SVSI_ENSUREVISIBLE → ADDIERT zur Auswahl (stört die manuelle nicht).
+ */
+private const val EXPLORER_SELECT_PS =
+    "\$ErrorActionPreference='SilentlyContinue';" +
+    "\$f=\$env:BEAM_SEL_FILE;" +
+    "\$lines=Get-Content -LiteralPath \$f -Encoding UTF8;" +
+    "\$folder=\$lines[0];" +
+    "\$names=@(\$lines|Select-Object -Skip 1|Where-Object{\$_});" +
+    "\$sh=New-Object -ComObject Shell.Application;" +
+    "\$win=\$sh.Windows()|Where-Object{try{\$_.Document.Folder.Self.Path -eq \$folder}catch{\$false}}|Select-Object -First 1;" +
+    "if(-not \$win){explorer.exe \$folder;Start-Sleep -Milliseconds 900;\$win=\$sh.Windows()|Where-Object{try{\$_.Document.Folder.Self.Path -eq \$folder}catch{\$false}}|Select-Object -First 1};" +
+    "if(\$win){foreach(\$n in \$names){\$it=\$win.Document.Folder.ParseName(\$n);if(\$it){[void]\$win.Document.SelectItem(\$it,9)}}};" +
+    "Remove-Item -LiteralPath \$f -Force"
+
+/** Öffnet/findet ein Explorer-Fenster auf [dir] und markiert die [names] (additiv) — fire-and-forget. */
+private fun selectInExplorer(dir: File, names: List<String>) {
+    if (names.isEmpty()) return
+    Thread {
+        runCatching {
+            val data = File.createTempFile("beamsel_", ".txt")
+            data.writeText((listOf(dir.absolutePath) + names).joinToString("\n"), Charsets.UTF_8)
+            val b64 = java.util.Base64.getEncoder().encodeToString(EXPLORER_SELECT_PS.toByteArray(Charsets.UTF_16LE))
+            ProcessBuilder("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", b64)
+                .apply { environment()["BEAM_SEL_FILE"] = data.absolutePath; redirectErrorStream(true) }
+                .start()
+        }.onFailure { beamLog("[W] selectInExplorer: ${it.message}") }
+    }.start()
+}
+
+/**
+ * Empfang: Dateien live im Explorer markieren, sobald genau SIE fertig sind (per-Datei-Fortschritt) —
+ * der Anwender sieht sie eintrudeln (mit Thumbnail-Ansicht als Vorschau) und kann fertige sofort per
+ * Strg-X/C wegsortieren. Markiert nur NEU fertige (kumulativ), in der echten Datei-Location (Bündel
+ * liegen evtl. im Torrent-Top-Unterordner).
+ */
+private fun maybeSelectCompleted(e: de.systragon.beam.core.TorrentEntry, selected: MutableMap<String, MutableSet<String>>) {
+    val h = e.handle?.takeIf { it.isValid } ?: return
+    val ti = h.torrentFile() ?: return
+    val files = ti.files()
+    val total = files.numFiles()
+    val already = selected.getOrPut(e.infoHash) { mutableSetOf() }
+    if (already.size >= total) return                       // alles schon markiert → fertig
+    val fp = runCatching { h.fileProgress() }.getOrNull() ?: return
+    val savePath = runCatching { File(h.savePath()) }.getOrNull() ?: return
+    val byFolder = HashMap<File, MutableList<String>>()
+    for (i in 0 until total) {
+        val size = files.fileSize(i)
+        if (size > 0 && i < fp.size && fp[i] >= size) {
+            val rel = files.filePath(i)
+            if (already.add(rel)) {                          // nur NEU fertige
+                val onDisk = File(savePath, rel)
+                byFolder.getOrPut(onDisk.parentFile ?: savePath) { mutableListOf() }.add(onDisk.name)
+            }
+        }
+    }
+    for ((folder, names) in byFolder) selectInExplorer(folder, names)
+}
+
 /** True, wenn der Ordner (rekursiv) mindestens eine echte Datei enthält. */
 private fun containsAnyFile(dir: File): Boolean = dir.walkTopDown().any { it.isFile }
 
@@ -866,8 +940,11 @@ private fun copyFileToClipboard(file: File) {
  * Stellt mehrere Dateien in einen Bündel-Ordner für einen Multi-File-Torrent. Bei [encrypt] wird
  * jede Datei als `<name>.beamenc` verschlüsselt (wie Android), sonst Hardlink (bzw. Kopie).
  */
-private fun stageBundle(files: List<File>, encrypt: Boolean, passphrase: String): File {
-    val dir = File(workDir, "Beam_${System.currentTimeMillis()}").apply { mkdirs() }
+private fun stageBundle(files: List<File>, encrypt: Boolean, passphrase: String, tag: String = ""): File {
+    // Tag (falls gesetzt) als Bündel-Ordnername statt kryptischer Nummer → Empfänger sieht „BEAM_<Tag>".
+    val safe = tag.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().take(40)
+    val dirName = if (safe.isNotEmpty()) "BEAM_$safe" else "Beam_${System.currentTimeMillis()}"
+    val dir = File(workDir, dirName).apply { if (exists()) deleteRecursively(); mkdirs() }
     for (f in files) {
         if (encrypt) {
             FileCrypto.encrypt(f, f.name, passphrase, File(dir, f.name + ".beamenc")) { }

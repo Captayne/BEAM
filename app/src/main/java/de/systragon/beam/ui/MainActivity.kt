@@ -298,7 +298,10 @@ class MainActivity : ComponentActivity() {
     /** Mehrere Dateien in einen Ordner bündeln (komprimieren/verschlüsseln je Datei), dann ein
      *  einziger Multi-File-Torrent. Sequentiell, da Komprimierung den Main-Looper braucht. */
     private fun bundleAndSend(uris: List<Uri>) {
-        val bundleDir = File(cacheDir, "bundle_${System.currentTimeMillis()}").apply { mkdirs() }
+        // Tag (falls gesetzt) als Bündel-Ordnername statt kryptischer Nummer → Empfänger sieht „BEAM_<Tag>".
+        val tagName = viewModel.sendTag.value.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().take(40)
+        val dirName = if (tagName.isNotEmpty()) "BEAM_$tagName" else "bundle_${System.currentTimeMillis()}"
+        val bundleDir = File(cacheDir, dirName).apply { if (exists()) deleteRecursively(); mkdirs() }
         viewModel.prepareStart("${uris.size} files", "Preparing")
         processBundleItem(uris, 0, bundleDir)
     }
