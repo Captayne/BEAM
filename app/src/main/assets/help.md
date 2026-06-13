@@ -40,6 +40,9 @@ When sending, you can enable encryption and enter a passphrase for end-to-end en
 🔗 Settings / Trackers
 Trackers help sender and receiver find each other. You can edit the tracker list under Settings; sender and receiver must use the same trackers (the defaults work). Trackers are the backbone of the torrent network — they let sender and receiver find each other anonymously, by their shared HASH. It may take a little while until two sides looking for the same HASH find each other. Beam (ab)uses the torrent network to let sender and receiver find each other for private transfers. 😁
 
+🌐 Allow DHT (Settings)
+The DHT (Distributed Hash Table) lets sender and receiver find each other over a public, decentralized network by their shared HASH — even when they share no tracker. The flip side: crawlers that watch the public DHT can spot that a HASH is being shared and connect uninvited (you may see them on a seeding card as TCP(#)/µTP(#)). Turn "Allow DHT" OFF for a quieter transfer — fewer strangers find the HASH — while Beam's own station, the peer-hint and the relay keep working. Either way: encrypt anything sensitive, then even someone who finds the HASH only ever gets ciphertext.
+
 🚀 Faster & more reliable
 • Best speed: have both phones on the same 5 GHz Wi-Fi (or turn one phone into a hotspot and connect the other to it) — this avoids the router bottleneck.
 • Over mobile data a direct connection isn't always possible (carrier NAT). Same Wi-Fi is the most reliable; otherwise the relay steps in.

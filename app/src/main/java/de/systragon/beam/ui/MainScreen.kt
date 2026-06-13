@@ -84,12 +84,15 @@ fun MainScreen(
     // Einmal pro App-Start prüfen: ist Beam von der Akku-Optimierung ausgenommen? Wenn nicht,
     // drosselt Android die Übertragung im Hintergrund → Hinweis-Prompt zeigen.
     var showBatteryPrompt by remember { mutableStateOf(!isIgnoringBatteryOptimizations(context)) }
+    val versionName = remember {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty()
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Beam!", fontWeight = FontWeight.Bold) },
+                    title = { Text(if (versionName.isEmpty()) "Beam!" else "Beam!  v$versionName", fontWeight = FontWeight.Bold) },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         titleContentColor = Color.White
@@ -101,22 +104,26 @@ fun MainScreen(
                     }
                 )
             },
-            floatingActionButton = {
+            bottomBar = {
                 if (selectedTab == 0) {
-                    // Links: .beam aus dem Dateimanager importieren (zuverlässig, unabhängig von der
-                    // Datei-Verknüpfung). Rechts: Magnet/Link aus der Zwischenablage einfügen.
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        ExtendedFloatingActionButton(
-                            onClick = onImportBeam,
-                            icon = { Icon(Icons.Default.FileOpen, contentDescription = null) },
-                            text = { Text("Import") }
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        ExtendedFloatingActionButton(
-                            onClick = { viewModel.pasteLinkFromClipboard(context) },
-                            icon = { Icon(Icons.Default.ContentPaste, contentDescription = null) },
-                            text = { Text("Paste link") }
-                        )
+                    // Fußzeile statt schwebender Buttons → verdeckt ab vielen Karten nicht mehr die unterste.
+                    // Links: .beam importieren (zuverlässig, unabhängig von der Datei-Verknüpfung).
+                    // Rechts: Magnet/Link aus der Zwischenablage einfügen.
+                    Surface(tonalElevation = 3.dp, shadowElevation = 8.dp) {
+                        Row(
+                            // navigationBarsPadding: über die Android-System-Buttons heben (sonst verdeckt).
+                            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Button(onClick = onImportBeam, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.FileOpen, contentDescription = null)
+                                Spacer(Modifier.width(6.dp)); Text("Import")
+                            }
+                            Button(onClick = { viewModel.pasteLinkFromClipboard(context) }, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.ContentPaste, contentDescription = null)
+                                Spacer(Modifier.width(6.dp)); Text("Paste link")
+                            }
+                        }
                     }
                 }
             }
@@ -162,7 +169,7 @@ fun MainScreen(
 
         // Fortschritts-Overlay beim Vorbereiten großer Sende-Dateien
         val prepare by viewModel.prepare.collectAsState()
-        prepare?.let { info -> PrepareOverlay(info) }
+        prepare?.let { info -> PrepareOverlay(info, onCancel = { viewModel.cancelPreparing() }) }
 
         if (showHelp) HelpDialog(onClose = { showHelp = false })
         if (showBatteryPrompt) BatteryOptimizationDialog(
@@ -305,7 +312,7 @@ private fun HelpDialog(onClose: () -> Unit) {
 }
 
 @Composable
-private fun PrepareOverlay(info: PrepareInfo) {
+private fun PrepareOverlay(info: PrepareInfo, onCancel: () -> Unit) {
     Dialog(
         onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
@@ -342,6 +349,10 @@ private fun PrepareOverlay(info: PrepareInfo) {
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text("${info.phase}… ${(info.progress * 100).toInt()} %", style = MaterialTheme.typography.labelSmall)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.End)) {
+                    Text("Cancel")
                 }
             }
         }
@@ -699,7 +710,7 @@ fun TorrentCard(
                 Spacer(modifier = Modifier.height(6.dp))
             }
 
-            // Kopfzeile: Richtungspfeil + Name + kompakte Statuszeile
+            // Kopfzeile: Richtungspfeil + Name in EINER Zeile (Lock rechts).
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = if (entry.isDownload) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
@@ -707,25 +718,13 @@ fun TorrentCard(
                     tint = if (entry.isDownload) Color(0xFF2196F3) else Color(0xFF4CAF50),
                     modifier = Modifier.padding(end = 10.dp)
                 )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = entry.fileName,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = statusLine(entry),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (entry.state == TorrentState.ERROR)
-                            MaterialTheme.colorScheme.error
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                Text(
+                    text = entry.fileName,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
                 if (entry.isEncrypted) {
                     Icon(
                         Icons.Default.Lock,
@@ -737,6 +736,18 @@ fun TorrentCard(
                     )
                 }
             }
+            // Statuszeile links bündig in der Karte (volle Breite, nicht unter dem Pfeil eingerückt).
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = statusLine(entry),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (entry.state == TorrentState.ERROR)
+                    MaterialTheme.colorScheme.error
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
 
             // Fortschrittsbalken beim Empfang
             if (showProgress) {
@@ -751,16 +762,9 @@ fun TorrentCard(
                 }
             }
 
-            // Relay-Empfehlung: Gegenüber bekannt, aber direkte Verbindung kommt nicht durch. Beide
-            // Nutzer sehen das ~gleichzeitig → beide tippen 📡 → Paarung an der Beam-Relaystation.
-            if (entry.directBlocked) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "⚠ Direct connection blocked — tap 📡 to send via the Beam-Relay-Station",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
+            // (Kein „Direct connection blocked"-Hinweis mehr — war irreführend, wenn die Gegenseite nur
+            //  noch nicht online ist. Der aktuelle Zustand steht jetzt in der Statuszeile, der 📡-Knopf
+            //  zeigt den Relay-Status selbst.)
 
             // Button-Reihe: links Link kopieren (+ Play beim Empfänger),
             // rechts Mülltonne (alles löschen) und ✕ (nur Karte entfernen)
@@ -850,11 +854,23 @@ private fun statusLine(entry: TorrentEntry): String {
         }
         TorrentState.DOWNLOADING ->
             "$size · ⬇ ${formatSize(entry.downloadRate.toLong())}/s · ${(entry.progress * 100).toInt()} %"
-        TorrentState.SEEDING -> when {
-            entry.currentPeers > 0 ->
-                "$size · ⬆ ${formatSize(entry.uploadRate.toLong())}/s · ${entry.currentPeers} peers"
-            entry.trackerWorking -> "$size · Waiting for receiver…"
-            else                 -> "$size · Connecting to trackers…"
+        TorrentState.SEEDING -> {
+            // Transport-Aufschlüsselung der saugenden Empfänger: TCP(#) µTP(#) Relay(#).
+            val ways = buildList {
+                if (entry.leechTcp > 0) add("TCP(${entry.leechTcp})")
+                if (entry.leechUtp > 0) add("µTP(${entry.leechUtp})")
+                if (entry.leechRelay > 0) add("Relay(${entry.leechRelay})")
+            }.joinToString(" ")
+            // Insgesamt ausgelieferte Menge als % der Dateigröße — bleibt stehen (auch wenn der Empfänger
+            // schon weg ist) und kann >100% werden, wenn an mehrere verteilt wurde.
+            val sentPct = if (entry.fileSize > 0) (entry.uploadedBytes * 100 / entry.fileSize).toInt() else 0
+            val sent = if (entry.uploadedBytes > 0) " · ${sentPct}%" else ""
+            when {
+                ways.isNotEmpty()       -> "$size · ⬆ ${formatSize(entry.uploadRate.toLong())}/s · $ways$sent"
+                entry.uploadedBytes > 0 -> "$size · ✓ ${sentPct}%"
+                entry.trackerWorking    -> "$size · Waiting for receiver…"
+                else                    -> "$size · Connecting…"
+            }
         }
         TorrentState.COMPLETED ->
             "$size · ✓ saved"
@@ -945,7 +961,21 @@ fun SettingsScreen(viewModel: TorrentViewModel, onShareApp: () -> Unit = {}, onS
                 onCheckedChange = { viewModel.setKeepCompressed(it) }
             )
             Text(
-                "Keep compressed videos on this device (Download/Beam)",
+                "Keep compressed videos / data from external storage (NAS, SD) on this device",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        HorizontalDivider()
+
+        val allowDht by viewModel.allowDht.collectAsState()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = allowDht,
+                onCheckedChange = { viewModel.setAllowDht(it) }
+            )
+            Text(
+                "Allow DHT (Distributed Hash Table) — public peer discovery. Off = quieter: fewer strangers find the HASH (Beam's own tracker + relay still work).",
                 style = MaterialTheme.typography.bodySmall
             )
         }

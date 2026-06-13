@@ -73,6 +73,8 @@ class SeedingService : Service() {
         super.onCreate()
         createNotificationChannel()
         TorrentManager.startSession()
+        // Gespeicherte DHT-Einstellung anwenden (Default an). Aus = leiser Modus (weniger Crawler am Hash).
+        TorrentManager.setDhtEnabled(getSharedPreferences("beam", Context.MODE_PRIVATE).getBoolean("allow_dht", true))
         startForeground(NOTIFICATION_ID, buildNotification("Beam! ready"))
         acquireLocks()
         registerNetworkCallback()
@@ -467,6 +469,7 @@ class SeedingService : Service() {
                     torrentFile= File(torrentPath),
                     isEncrypted = FileCrypto.isEncryptedName(fileName)
                 )
+                entry.tag = intent.getStringExtra(EXTRA_TAG)?.takeIf { it.isNotBlank() }   // Tag auf der Sender-Karte
 
                 resetTransportBaseline()
                 val success = TorrentManager.addAndStart(entry, loadTrackers())

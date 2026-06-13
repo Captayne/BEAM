@@ -5,8 +5,9 @@ import java.io.File
 /**
  * Gemeinsame, plattformneutrale Helfer für das `.beam`-Format.
  *
- * Dateiname: `<Name>.<40hex-hash>[.pe<12hex>][.tg<hex>][.bk].beam`  (Hash + optionale Segmente im Namen).
- * Dateiinhalt: Magnetlink (Fallback, falls ein Messenger den Namen verändert).
+ * Dateiname: `<Name>.<40hex-hash>[.pe<12hex>][.bk].beam`  (kurz gehalten gegen Windows-MAX_PATH in
+ *   tiefen Messenger-Temp-Ordnern — WhatsApp legt die Datei ~163 Zeichen tief ab).
+ * Dateiinhalt: Zeile 1 = Magnetlink (portabel); optionale Zeile 2 = `tag=<info>` (Beam-intern).
  */
 data class BeamLink(
     val displayName: String,
@@ -17,21 +18,19 @@ data class BeamLink(
      *  (etwa NAS-Bildersammlung), statt stumpf in den Standard-Ordner zu legen. Kodiert als
      *  Flag-Segment `.bk` im Dateinamen (vor dem Download lesbar). */
     val backup: Boolean = false,
-    /** Optionales Info-Tag des Senders (max 20 Zeichen), als `.tg<hex>`-Segment im Dateinamen
-     *  kodiert → vor dem Download lesbar, beim Empfänger oben auf der Karte angezeigt. */
+    /** Optionales Info-Tag des Senders (max [TAG_MAX] Zeichen). Im `.beam`-INHALT (`tag=…`) gespeichert,
+     *  NICHT im Namen (hält den Pfad kurz → MAX_PATH). Empfänger zeigt es oben auf der Karte. */
     val tag: String? = null
 ) {
     fun fileName(): String = buildString {
-        append(sanitizeFileName(displayName.ifBlank { "beam-file" }))
+        // Name kappen + Tag NICHT im Namen: WhatsApp legt die .beam sehr tief ab (~163 Zeichen),
+        // lange Namen/Tags sprengten sonst MAX_PATH (260) → die Datei ließ sich nicht öffnen.
+        append(sanitizeFileName(displayName.ifBlank { "beam-file" }).take(NAME_MAX))
         append('.')
         append(infoHash.lowercase())
         if (!peerHint.isNullOrBlank()) {
             append('.')
             append(peerHint)
-        }
-        tagSegment(tag)?.let {
-            append('.')
-            append(it)
         }
         if (backup) {
             append('.')
@@ -43,7 +42,10 @@ data class BeamLink(
     fun writeTo(directory: File): File {
         directory.mkdirs()
         val out = File(directory, fileName())
-        out.writeText(magnet ?: minimalMagnet(infoHash, displayName), Charsets.UTF_8)
+        // Inhalt: Zeile 1 = portabler Magnet; optionale Zeile 2 = `tag=…` (Beam-intern, hält den Namen kurz).
+        val body = magnet ?: minimalMagnet(infoHash, displayName)
+        val t = tag?.trim()?.takeIf { it.isNotEmpty() }
+        out.writeText(if (t != null) "$body\ntag=$t" else body, Charsets.UTF_8)
         return out
     }
 
@@ -54,6 +56,8 @@ data class BeamLink(
         private val TG = Regex("^tg([0-9a-fA-F]{2,})$")
         /** Maximale Tag-Länge (Zeichen) — auch im UI begrenzt. */
         const val TAG_MAX = 20
+        /** Max. Länge des Anzeigenamens im .beam-Dateinamen (gegen MAX_PATH in tiefen Messenger-Temp-Ordnern). */
+        const val NAME_MAX = 28
 
         /**
          * Kodiert ein optionales Info-Tag als Dateinamen-Segment `tg<hex>` (UTF-8 → Hex, damit
@@ -105,10 +109,13 @@ data class BeamLink(
         /** Liest eine `.beam`-Datei (Name primär, Inhalt als Magnet-Fallback). */
         fun parseFile(file: File): BeamLink? {
             val byName = parseName(file.name) ?: return null
-            val magnet = runCatching {
-                file.readText(Charsets.UTF_8).trim().takeIf { it.startsWith("magnet:") }
-            }.getOrNull()
-            return byName.copy(magnet = magnet)
+            val content = runCatching { file.readText(Charsets.UTF_8) }.getOrNull()
+            val magnet = content?.lineSequence()?.map { it.trim() }?.firstOrNull { it.startsWith("magnet:") }
+            // Tag jetzt aus dem Inhalt (`tag=…`); altes Format (Tag im Namen) bleibt als Fallback.
+            val tag = content?.lineSequence()?.map { it.trim() }
+                ?.firstOrNull { it.startsWith("tag=") }?.removePrefix("tag=")?.takeIf { it.isNotEmpty() }
+                ?: byName.tag
+            return byName.copy(magnet = magnet, tag = tag)
         }
 
         /**

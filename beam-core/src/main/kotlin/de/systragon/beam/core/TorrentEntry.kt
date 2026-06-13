@@ -31,6 +31,9 @@ data class TorrentEntry(
     var errorMessage: String? = null,
     var uploadedBytes: Long = 0L,
     var currentPeers: Int = 0,
+    var leechTcp: Int = 0,            // verbundene Empfänger per direktem TCP
+    var leechUtp: Int = 0,            // … per µTP
+    var leechRelay: Int = 0,          // … über die Relay-Röhre (echte Leecher-Zahl bleibt dem Sender verborgen)
     var uploadRate: Int = 0,
     // Relay-Empfehlung: Gegenüber bekannt (listPeers>0), aber keine Verbindung (numPeers==0) seit N s.
     var directBlocked: Boolean = false,

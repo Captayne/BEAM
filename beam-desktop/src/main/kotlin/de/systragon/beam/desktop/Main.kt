@@ -405,6 +405,8 @@ private fun BeamApp(initialPaths: List<String>) {
                         val prog = st?.progress() ?: 0f
                         val rate = if (e.isDownload) st?.downloadRate() ?: 0 else st?.uploadRate() ?: 0
                         val finished = st?.isFinished ?: false
+                        // Seeder: insgesamt ausgelieferte Menge als % der Dateigröße (kann >100% sein).
+                        val sentPct = if (!e.isDownload && e.fileSize > 0) ((st?.totalUpload() ?: 0L) * 100 / e.fileSize).toInt() else 0
                         // „Direkt blockiert"-Erkennung: Gegenüber bekannt (listPeers>0), aber keine
                         // Verbindung (numPeers==0) seit N s ab Auftauchen → Relay anbieten.
                         val listPeers = st?.listPeers() ?: 0
@@ -466,12 +468,12 @@ private fun BeamApp(initialPaths: List<String>) {
                                 }.start()
                             }
                         }
+                        val (lt, lu, lr) = if (!e.isDownload) TorrentManager.leechBreakdown(e.infoHash) else Triple(0, 0, 0)
                         UiTransfer(
                             infoHash = e.infoHash,
                             name = e.fileName,
                             isDownload = e.isDownload,
-                            statusText = if (blocked) "⚠ Direct connection blocked — send via Beam-Relay?"
-                                         else statusText(e.isDownload, meta, finished, peers, rate, prog, e.trackerWorking),
+                            statusText = statusText(e.isDownload, meta, finished, peers, rate, prog, e.trackerWorking, lt, lu, lr, sentPct),
                             progress = prog,
                             showProgress = e.isDownload && !finished,
                             directBlocked = blocked,
@@ -783,7 +785,7 @@ private fun TransferCard(t: UiTransfer, beamPath: String?) {
 }
 
 /** Granulare Statuszeile — wie in der Android-App. */
-private fun statusText(isDownload: Boolean, meta: Boolean, finished: Boolean, peers: Int, rate: Int, progress: Float, trackerWorking: Boolean): String {
+private fun statusText(isDownload: Boolean, meta: Boolean, finished: Boolean, peers: Int, rate: Int, progress: Float, trackerWorking: Boolean, tcp: Int = 0, utp: Int = 0, relay: Int = 0, sentPct: Int = 0): String {
     if (isDownload) {
         return when {
             finished -> "✓ done"
@@ -792,10 +794,18 @@ private fun statusText(isDownload: Boolean, meta: Boolean, finished: Boolean, pe
             else -> "⬇ ${humanBytes(rate.toLong())}/s · ${(progress * 100).toInt()} % · $peers peers"
         }
     }
+    // Seeder: Transport-Aufschlüsselung der saugenden Empfänger — TCP(#) µTP(#) Relay(#).
+    val ways = buildList {
+        if (tcp > 0) add("TCP($tcp)")
+        if (utp > 0) add("µTP($utp)")
+        if (relay > 0) add("Relay($relay)")
+    }.joinToString(" ")
+    val sent = if (sentPct > 0) " · ${sentPct}%" else ""
     return when {
-        peers > 0 -> "⬆ ${humanBytes(rate.toLong())}/s · $peers peers"
+        ways.isNotEmpty() -> "⬆ ${humanBytes(rate.toLong())}/s · $ways$sent"
+        sentPct > 0 -> "✓ ${sentPct}%"
         trackerWorking -> "Waiting for receiver…"
-        else -> "Connecting to trackers…"
+        else -> "Connecting…"
     }
 }
 

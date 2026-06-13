@@ -143,8 +143,10 @@ class TorrentViewModel(application: Application) : AndroidViewModel(application)
     // Vorbereitung beim Senden großer Dateien (Cache-Kopie + Hashing); null = nichts läuft.
     private val _prepare = MutableStateFlow<PrepareInfo?>(null)
     val prepare: StateFlow<PrepareInfo?> = _prepare
+    private val _prepareCancel = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun prepareStart(fileName: String, phase: String = "Preparing") {
+        _prepareCancel.set(false)
         _prepare.value = PrepareInfo(fileName, 0f, phase)
     }
     fun prepareProgress(fraction: Float) {
@@ -152,6 +154,14 @@ class TorrentViewModel(application: Application) : AndroidViewModel(application)
     }
     fun prepareHashing() { _prepare.value = _prepare.value?.copy(progress = -1f) }
     fun prepareDone() { _prepare.value = null }
+
+    /** Laufende Vorbereitung abbrechen (z. B. versehentlich 10000 Dateien via Chrono). Die Hintergrund-
+     *  Schleifen prüfen [isPrepareCancelled] und brechen ab + räumen auf. */
+    fun cancelPreparing() {
+        _prepareCancel.set(true)
+        _prepare.value = _prepare.value?.copy(phase = "Cancelling")
+    }
+    fun isPrepareCancelled(): Boolean = _prepareCancel.get()
 
     // Gewählte Video-Komprimierungsstufe (dauerhaft gespeichert); gilt für Videos beim Senden.
     private val _compressionLevel = MutableStateFlow(loadCompressionLevel())
@@ -169,6 +179,16 @@ class TorrentViewModel(application: Application) : AndroidViewModel(application)
     fun setKeepCompressed(enabled: Boolean) {
         _keepCompressed.value = enabled
         prefs.edit().putBoolean("keep_compressed", enabled).apply()
+    }
+
+    // DHT erlauben (öffentliche, dezentrale Peer-Suche). Aus = „leiser" Modus: weniger fremde Crawler
+    // am Hash; Beams eigener Tracker + Peer-Hint + Relay bleiben aktiv. Default an (nichts kaputt).
+    private val _allowDht = MutableStateFlow(prefs.getBoolean("allow_dht", true))
+    val allowDht: StateFlow<Boolean> = _allowDht
+    fun setAllowDht(enabled: Boolean) {
+        _allowDht.value = enabled
+        prefs.edit().putBoolean("allow_dht", enabled).apply()
+        TorrentManager.setDhtEnabled(enabled)
     }
 
     // Sekunden ohne Peer, nach denen ausgehendes µTP als Fallback zugeschaltet wird (3–60).
@@ -344,6 +364,8 @@ class TorrentViewModel(application: Application) : AndroidViewModel(application)
                             entry.uploadedBytes = status.totalUpload()
                             entry.currentPeers = status.numPeers()
                             entry.uploadRate = status.uploadRate()
+                            val (t, u, r) = TorrentManager.leechBreakdown(entry.infoHash)
+                            entry.leechTcp = t; entry.leechUtp = u; entry.leechRelay = r
                         }
                         TorrentState.FETCHING_METADATA, TorrentState.DOWNLOADING -> {
                             // Übergang META → DL hier UND im Service (idempotent) — so hängt die

@@ -336,12 +336,20 @@ class MainActivity : ComponentActivity() {
             putExtra(SeedingService.EXTRA_FILE_NAME, displayName)
             putExtra(SeedingService.EXTRA_FILE_SIZE, totalBytes)
             putExtra(SeedingService.EXTRA_INFO_HASH, created.infoHash)
+            putExtra(SeedingService.EXTRA_TAG, viewModel.sendTag.value)
         }
         startForegroundService(serviceIntent)
         shareBeamLink(displayName, created.infoHash, created.magnet)
     }
 
     private fun processBundleItem(uris: List<Uri>, index: Int, bundleDir: File) {
+        // Abbruch (Cancel im „Preparing"-Overlay) → Teil-Bündel löschen, Overlay schließen, raus.
+        if (viewModel.isPrepareCancelled()) {
+            Thread { runCatching { bundleDir.deleteRecursively() } }.start()
+            viewModel.prepareDone()
+            runOnUiThread { Toast.makeText(this, "Preparation cancelled", Toast.LENGTH_SHORT).show() }
+            return
+        }
         if (index >= uris.size) {
             Thread {
                 try { shareLocalFile(bundleDir, bundleDir.name, alreadyPrepared = true) }
@@ -381,6 +389,7 @@ class MainActivity : ComponentActivity() {
             Thread {
                 val copied = File(bundleDir, name)
                 copyUriToFile(uri, copied)
+                keepExternalIfEnabled(copied, uri)   // externe Quelle (NAS/SD) ggf. behalten (vor evtl. Verschlüsseln)
                 finalizeBundleFile(copied)
                 runOnUiThread { processBundleItem(uris, index + 1, bundleDir) }
             }.start()
@@ -430,6 +439,30 @@ class MainActivity : ComponentActivity() {
     private fun keepCompressedIfEnabled(file: File) {
         if (viewModel.keepCompressed.value) {
             MediaStoreSaver.publishToDownloads(this, file, file.name)
+        }
+    }
+
+    /** True, wenn die Quelle von externem Speicher kommt (SD/USB via SAF oder fremder/NAS-Provider) —
+     *  also NICHT der Telefon-eigene Speicher/Galerie. Heuristik (feldtest-würdig). */
+    private fun isExternalStorageUri(uri: Uri): Boolean {
+        val auth = uri.authority ?: return false
+        return when {
+            auth == "com.android.externalstorage.documents" -> {
+                val id = runCatching { android.provider.DocumentsContract.getDocumentId(uri) }.getOrNull()
+                    ?: runCatching { android.provider.DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
+                id != null && !id.startsWith("primary:", ignoreCase = true)   // primary: = Telefon-eigener Speicher
+            }
+            auth == "media" || auth.endsWith(".media.documents") -> false      // Geräte-Galerie = nicht extern
+            auth.contains("fileprovider") || auth == "$packageName.provider" -> false
+            else -> true   // unbekannter Provider (NAS/Cloud-SAF) → als extern behandeln
+        }
+    }
+
+    /** Original-Daten von externem Speicher (NAS/SD) auf dem Handy behalten, wenn „Keep" aktiv ist.
+     *  Use-Case: Drohnenvideos per Kartenleser → Handy → (komprimieren) → beamen + behalten, in einem Schritt. */
+    private fun keepExternalIfEnabled(file: File, sourceUri: Uri) {
+        if (viewModel.keepCompressed.value && isExternalStorageUri(sourceUri)) {
+            MediaStoreSaver.publish(this, file, file.name)
         }
     }
 
@@ -487,10 +520,13 @@ class MainActivity : ComponentActivity() {
     private fun processBeamFile(uri: Uri) {
         // 1) Primär: Hash direkt aus dem Dateinamen (<originalname>.<hash>.beam) — kein Stream nötig.
         val (displayName, _) = readFileMetadata(uri)
-        // 2) Fallback: Inhalt lesen (falls ein Messenger den Namen umbenannt/gekürzt hat).
+        // Inhalt einmal lesen: Magnet-Fallback (falls Name verstümmelt) UND das Info-Tag (Zeile `tag=…`).
+        val content = readBeamFileContent(uri)
         val magnet = magnetFromBeamFileName(displayName)
-            ?: readBeamFileContent(uri)?.let { magnetFromBeamContent(it) }
-        val tag = de.systragon.beam.core.BeamLink.parseName(displayName)?.tag   // optionales Info-Tag aus dem Namen
+            ?: content?.let { magnetFromBeamContent(it) }
+        val tag = content?.lineSequence()?.map { it.trim() }
+            ?.firstOrNull { it.startsWith("tag=") }?.removePrefix("tag=")?.takeIf { it.isNotEmpty() }
+            ?: de.systragon.beam.core.BeamLink.parseName(displayName)?.tag   // Fallback: altes Format (Tag im Namen)
 
         if (magnet != null) {
             startDownload(magnet, tag)
@@ -568,6 +604,7 @@ class MainActivity : ComponentActivity() {
                 onProgress = if (showPrepare) { f -> viewModel.prepareProgress(f) } else null
             ) ?: return
 
+            keepExternalIfEnabled(cachedFile, uri)   // Daten von externem Speicher (NAS/SD) ggf. behalten
             shareLocalFile(cachedFile, fileName)
         } finally {
             if (showPrepare) viewModel.prepareDone()
@@ -607,8 +644,11 @@ class MainActivity : ComponentActivity() {
             putExtra(SeedingService.EXTRA_TORRENT_PATH, torrentFile.absolutePath)
             putExtra(SeedingService.EXTRA_FILE_DIR, toShare.parent)
             putExtra(SeedingService.EXTRA_FILE_NAME, toShare.name)
-            putExtra(SeedingService.EXTRA_FILE_SIZE, toShare.length())
+            putExtra(SeedingService.EXTRA_FILE_SIZE,
+                // Bündel = Ordner: echte Gesamtgröße = Summe der enthaltenen Dateien (nicht dir.length() ≈ 4 KB!).
+                if (toShare.isDirectory) toShare.walkTopDown().filter { it.isFile }.sumOf { it.length() } else toShare.length())
             putExtra(SeedingService.EXTRA_INFO_HASH, infoHash)
+            putExtra(SeedingService.EXTRA_TAG, viewModel.sendTag.value)   // Tag auch auf der Sender-Karte zeigen
         }
         startForegroundService(serviceIntent)
 
@@ -624,13 +664,17 @@ class MainActivity : ComponentActivity() {
     private fun shareBeamLink(fileName: String, infoHash: String, magnetLink: String) {
         val linksDir = File(cacheDir, "beamlinks").apply { mkdirs() }
         val hint = de.systragon.beam.core.PeerHint.localSegment()
-        var core = if (hint != null) "$fileName.$infoHash.$hint" else "$fileName.$infoHash"
+        // Name kappen + Tag NICHT in den Namen (steckt im Inhalt) → kurzer Pfad gegen MAX_PATH in
+        // WhatsApps tiefem Temp-Ordner (~163 Zeichen).
+        val shortName = fileName.take(de.systragon.beam.core.BeamLink.NAME_MAX)
+        var core = if (hint != null) "$shortName.$infoHash.$hint" else "$shortName.$infoHash"
         // Chronologie- ODER Direct-Access-Backup → .bk-Token anhängen, damit der PC-Empfänger nach dem
         // Zielordner (z. B. NAS-Bildersammlung) fragt, statt stumpf in Download/Beam zu legen.
-        de.systragon.beam.core.BeamLink.tagSegment(viewModel.sendTag.value)?.let { core += ".$it" }
         if (viewModel.chronologyMode.value || viewModel.directAccess.value) core += ".bk"
         val beamFile = File(linksDir, "$core.beam")
-        beamFile.writeText(magnetLink)
+        // Inhalt: Zeile 1 = Magnet, optionale Zeile 2 = tag=… (Empfänger zeigt es oben auf der Karte).
+        val tagText = viewModel.sendTag.value.trim()
+        beamFile.writeText(if (tagText.isNotEmpty()) "$magnetLink\ntag=$tagText" else magnetLink)
         viewModel.clearSendTag()   // Tag ist pro Transfer → nach dem Erzeugen des .beam zurücksetzen
 
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", beamFile)

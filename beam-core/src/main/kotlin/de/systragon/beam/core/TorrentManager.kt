@@ -31,6 +31,47 @@ object TorrentManager {
         }
     }
 
+    /** libtorrent `peer_info::utp_socket` (Bit 17) — stabile Protokoll-Konstante. */
+    private const val UTP_SOCKET_FLAG = 0x20000
+
+    /**
+     * Zählt die aktuell verbundenen Empfänger eines Seeds nach Transportweg: Triple(tcp, utp, relay).
+     * `relay` = Verbindung(en) zur Relay-IP — deren echte Zahl dahinter saugender Clients bleibt dem
+     * Sender verborgen (libtorrent sieht nur die eine Röhre). Bei Fehler/keine Peers → (0,0,0).
+     */
+    fun leechBreakdown(infoHash: String, relayHost: String = RelayConfig.DEFAULT_HOST): Triple<Int, Int, Int> {
+        val h = torrents[infoHash]?.handle?.takeIf { it.isValid } ?: return Triple(0, 0, 0)
+        var tcp = 0; var utp = 0; var relay = 0
+        try {
+            for (p in h.peerInfo()) {
+                val ip = p.ip()?.substringBeforeLast(':')
+                when {
+                    ip == relayHost -> relay++
+                    (p.flags() and UTP_SOCKET_FLAG) != 0 -> utp++
+                    else -> tcp++
+                }
+            }
+        } catch (_: Exception) {}
+        return Triple(tcp, utp, relay)
+    }
+
+    /**
+     * DHT zur Laufzeit an/aus (Session-weit). **Aus = „leiser" Modus**: kein Ankündigen im
+     * öffentlichen DHT → deutlich weniger ungebetene Crawler am Infohash. Eigener Tracker, Peer-Hint
+     * und Relay bleiben aktiv (Auffindung bleibt für den normalen Fall erhalten).
+     */
+    fun setDhtEnabled(enabled: Boolean) {
+        if (!session.isRunning) return
+        try {
+            val s = org.libtorrent4j.SettingsPack()
+            s.setBoolean(org.libtorrent4j.swig.settings_pack.bool_types.enable_dht.swigValue(), enabled)
+            session.applySettings(s)
+            BeamLog.i(TAG, "DHT ${if (enabled) "an" else "aus (leiser Modus)"}")
+        } catch (e: Exception) {
+            BeamLog.w(TAG, "setDhtEnabled Fehler: ${e.message}")
+        }
+    }
+
     fun startSession() {
         if (!session.isRunning) {
             val settings = org.libtorrent4j.SettingsPack()

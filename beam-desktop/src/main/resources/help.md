@@ -36,6 +36,9 @@ When sending, enable encryption and enter a passphrase for end-to-end encryption
 🔗 Trackers (advanced)
 Trackers help sender and receiver find each other. Open "🛰️ Trackers (advanced)" to edit the list; sender and receiver must use the same trackers (the defaults work). Beam's own station is on top. Trackers let both sides find each other anonymously by their shared HASH — it can take a little while until two sides looking for the same HASH meet. 😁
 
+🌐 DHT & privacy
+Beam also finds peers via the DHT (a public, decentralized network keyed by the shared HASH). That convenience means crawlers watching the DHT can spot a HASH and connect uninvited (they may show up on a seeding card as TCP(#)/µTP(#)). They only ever get ciphertext if you encrypt — so encrypt anything sensitive. A quieter, "DHT-off" mode is available in the phone app's Settings.
+
 🚀 Faster & more reliable
 • Best speed: a direct connection on the same network (LAN / Wi-Fi) is fastest — the relay is only a fallback.
 • Over carrier-grade NAT (common on mobile, and on some company networks) a direct connection isn't always possible; then the relay steps in.
