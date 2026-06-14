@@ -597,8 +597,21 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
                 val tmp = File(downloadDir, "Beam-update.msi")
                 java.net.URL(RelayConfig.msiUrl(host)).openStream().use { ins -> tmp.outputStream().use { ins.copyTo(it) } }
                 ProcessBuilder("msiexec", "/i", tmp.absolutePath).start()
+                // Jede (Neu-)Installation re-registriert die .beam-Verknüpfung → WhatsApps strenger
+                // Launcher braucht danach einmal eine Neu-Anmeldung (zuverlässig), sonst öffnet er nicht.
+                status = "Installer launched — after updating: 🔧 Repair (set .beam → Beam), then sign out of Windows & back in once, so WhatsApp opens .beam."
             }.onFailure { beamLog("[W] update failed: ${it.message}"); status = "Update download failed." }
         }.start()
+    }
+
+    // Repariert die .beam-Verknüpfung für WhatsApps strengen Launcher: nach (Neu-)Installation/Update
+    // ist der UserChoice-Hash veraltet. Programmatisch neu setzen blockt Windows (Anti-Hijack), daher der
+    // legitime Weg über die Standard-Apps-Settings (oder einmal neu anmelden) — Button öffnet die Settings.
+    fun repairAssociation() {
+        runCatching {
+            ProcessBuilder("cmd", "/c", "start", "", "ms-settings:defaultapps").start()
+            status = "In Settings: 'Choose defaults by file type' → .beam → Beam. Then sign out of Windows & back in once → WhatsApp opens .beam again."
+        }.onFailure { beamLog("[W] repair failed: ${it.message}"); status = "Repair failed: ${it.message}" }
     }
 
     // Verteilen: lädt APK/MSI token-gated von der Station nach Downloads/Beam/installer/ und öffnet
@@ -657,6 +670,7 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
                 TopAppBar(
                     title = { Text("Beam!   v$BEAM_VERSION", fontWeight = FontWeight.Bold) },
                     actions = {
+                        TextButton(onClick = { repairAssociation() }) { Text("🔧 Repair", color = Color.White) }
                         TextButton(onClick = { showHelp = true }) { Text("❓ Help", color = Color.White) }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(

@@ -61,6 +61,10 @@ Manche Firmennetze blockieren Peer-to-Peer-Verkehr komplett, besonders mit Siche
 
 Tipp: Nimm einen Handy-Hotspot oder ein Heimnetz. Auch mit Firmen-VPN geht normaler Webverkehr oft per Split-Tunneling direkt raus — und Beam! kann beamen.
 
+## WhatsApp öffnet eine .beam nicht?
+
+Nach Installation/Update von Beam sagt WhatsApp Desktop evtl. „wird geöffnet", aber nichts passiert — Windows verwirft bei jeder (Neu-)Installation den Sicherheits-Hash der Dateiverknüpfung. Lösung: **🔧 Repair** (Titelleiste) → in den Settings **.beam → Beam** setzen, dann **einmal ab- und wieder anmelden**. In der Zwischenzeit klappt ein Doppelklick auf eine gespeicherte .beam immer.
+
 Das Fenster ist eine kompakte, frei skalierbare Box; es merkt sich nichts, was du nicht willst — keine Cloud, kein Konto.
 
 ---

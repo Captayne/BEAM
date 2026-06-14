@@ -61,6 +61,10 @@ Some company networks block peer-to-peer traffic completely, especially with sec
 
 Tip: switch to a phone hotspot, or work from home. Even on a company VPN, normal web traffic often goes out directly via split tunneling — and so does Beam!.
 
+## WhatsApp won't open a .beam?
+
+After installing or updating Beam, WhatsApp Desktop may say "opening…" while nothing happens — Windows invalidates the file link's security hash on every (re)install. Fix: click **🔧 Repair** (top bar) → in Settings set **.beam → Beam**, then **sign out of Windows and back in once**. In the meantime a double-click on a saved .beam always works.
+
 The window is a compact box you can resize freely; it remembers nothing you don't want it to — no cloud, no account.
 
 ---
