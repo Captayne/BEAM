@@ -43,6 +43,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.unit.em
@@ -249,39 +252,28 @@ private fun requestIgnoreBatteryOptimizations(context: android.content.Context) 
 private fun HelpDialog(onClose: () -> Unit) {
     val context = LocalContext.current
     val appVersion = remember { appVersionName(context) }
-    // Inhalt frei editierbar in app/src/main/assets/help.md
-    val helpText = remember {
+    // Beim Öffnen immer zuerst Englisch (breitestes Publikum); per Klick auf DE | EN umschaltbar.
+    var lang by remember { mutableStateOf("en") }
+
+    // Inhalt frei editierbar in app/src/main/assets/beam_help_<lang>.md
+    val helpText = remember(lang) {
         runCatching {
-            context.assets.open("help.md").bufferedReader().use { it.readText() }
+            context.assets.open("beam_help_$lang.md").bufferedReader().use { it.readText() }
         }.getOrDefault("Help is currently unavailable.")
     }
 
-    // Platzhalter im Hilfetext durch echte Icons ersetzen: "(V)" → Share, "(R)" → Reload.
-    val annotatedHelp = remember(helpText) {
-        val tokenRegex = Regex("\\((V|R)\\)")
-        buildAnnotatedString {
-            var last = 0
-            for (m in tokenRegex.findAll(helpText)) {
-                append(helpText.substring(last, m.range.first))
-                appendInlineContent(if (m.value == "(V)") "shareIcon" else "reloadIcon", m.value)
-                last = m.range.last + 1
-            }
-            append(helpText.substring(last))
-        }
+    // Erste Zeile ist der Sprach-Umschalter-Marker (z. B. "# EN | DE") — wir bauen den
+    // Umschalter selbst als anklickbare Zeile und schneiden die Marker-Zeile aus dem Fließtext.
+    val body = remember(helpText) {
+        val markerRegex = Regex("""^\s*#?\s*(EN|DE)\s*\|\s*(EN|DE)\s*$""")
+        helpText.lines()
+            .filterNot { markerRegex.matches(it) }
+            .joinToString("\n")
+            .trimStart('\n')
     }
-    val iconPlaceholder = Placeholder(
-        width = 1.3.em,
-        height = 1.3.em,
-        placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-    )
-    val inlineContent = mapOf(
-        "shareIcon" to InlineTextContent(iconPlaceholder) {
-            Icon(Icons.Default.Share, contentDescription = "Re-Share", modifier = Modifier.fillMaxSize())
-        },
-        "reloadIcon" to InlineTextContent(iconPlaceholder) {
-            Icon(Icons.Default.Refresh, contentDescription = "Reconnect/Retry", modifier = Modifier.fillMaxSize())
-        }
-    )
+
+    // Markdown leichtgewichtig in Blöcke zerlegen (kein externer Renderer, 0 neue Deps).
+    val blocks = remember(body) { parseMarkdown(body) }
 
     Dialog(onDismissRequest = onClose) {
         Card(shape = RoundedCornerShape(16.dp)) {
@@ -291,11 +283,32 @@ private fun HelpDialog(onClose: () -> Unit) {
                     .padding(20.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-                Text(
-                    annotatedHelp,
-                    style = MaterialTheme.typography.bodyMedium,
-                    inlineContent = inlineContent
-                )
+                // Sprach-Umschalter: aktive Sprache fett/hervorgehoben, die andere anklickbar.
+                Row(modifier = Modifier.align(Alignment.End)) {
+                    Text(
+                        "DE",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (lang == "de") FontWeight.Bold else FontWeight.Normal,
+                        color = if (lang == "de") MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable { lang = "de" }
+                    )
+                    Text(
+                        "  |  ",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "EN",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (lang == "en") FontWeight.Bold else FontWeight.Normal,
+                        color = if (lang == "en") MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable { lang = "en" }
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                MarkdownHelp(blocks)
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     "Version $appVersion",
@@ -305,6 +318,117 @@ private fun HelpDialog(onClose: () -> Unit) {
                 Spacer(modifier = Modifier.height(12.dp))
                 TextButton(onClick = onClose, modifier = Modifier.align(Alignment.End)) {
                     Text("Got it")
+                }
+            }
+        }
+    }
+}
+
+// --- Leichtgewichtiger Markdown-Renderer (kein externer Renderer, 0 neue Deps) ---------------
+// Unterstützt: # / ## Überschriften, **fett**, _kursiv_, `code`, - Aufzählung, --- Trennlinie,
+// und | Tabellen | (zweispaltig: Symbol + Text, wie die Icon-Legende).
+
+private sealed interface MdBlock {
+    data class Heading(val text: String, val level: Int) : MdBlock
+    data class Para(val text: String) : MdBlock
+    data class Bullet(val text: String) : MdBlock
+    data class Table(val rows: List<List<String>>) : MdBlock
+    object Rule : MdBlock
+    object Space : MdBlock
+}
+
+private fun parseMarkdown(md: String): List<MdBlock> {
+    val out = mutableListOf<MdBlock>()
+    val lines = md.lines()
+    var i = 0
+    val sepCell = Regex("""^:?-{2,}:?$""")
+    while (i < lines.size) {
+        val raw = lines[i]
+        val line = raw.trim()
+        when {
+            line.isEmpty() -> { out += MdBlock.Space; i++ }
+            line == "---" || line == "***" -> { out += MdBlock.Rule; i++ }
+            line.startsWith("## ") -> { out += MdBlock.Heading(line.removePrefix("## ").trim(), 2); i++ }
+            line.startsWith("# ") -> { out += MdBlock.Heading(line.removePrefix("# ").trim(), 1); i++ }
+            line.startsWith("- ") || line.startsWith("* ") -> { out += MdBlock.Bullet(line.drop(2).trim()); i++ }
+            line.startsWith("|") -> {
+                val rows = mutableListOf<List<String>>()
+                while (i < lines.size && lines[i].trim().startsWith("|")) {
+                    val cells = lines[i].trim().trim('|').split("|").map { it.trim() }
+                    if (cells.none { sepCell.matches(it) }) rows += cells   // Trenner-Zeile überspringen
+                    i++
+                }
+                if (rows.isNotEmpty()) out += MdBlock.Table(rows)
+            }
+            else -> { out += MdBlock.Para(line); i++ }
+        }
+    }
+    return out
+}
+
+/** Inline-Formatierung: **fett**, _kursiv_, `code`, <br/> → echter Umbruch. */
+private fun inlineMd(src: String): androidx.compose.ui.text.AnnotatedString = buildAnnotatedString {
+    val s = src.replace(Regex("""<br\s*/?>"""), "\n")
+    val rx = Regex("""\*\*(.+?)\*\*|_(.+?)_|`(.+?)`""")
+    var last = 0
+    for (m in rx.findAll(s)) {
+        append(s.substring(last, m.range.first))
+        when {
+            m.groupValues[1].isNotEmpty() ->
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(m.groupValues[1]) }
+            m.groupValues[2].isNotEmpty() ->
+                withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(m.groupValues[2]) }
+            else ->
+                withStyle(SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 0.9.em)) { append(m.groupValues[3]) }
+        }
+        last = m.range.last + 1
+    }
+    append(s.substring(last))
+}
+
+@Composable
+private fun MarkdownHelp(blocks: List<MdBlock>) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        blocks.forEach { b ->
+            when (b) {
+                is MdBlock.Space -> Spacer(Modifier.height(6.dp))
+                is MdBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                is MdBlock.Heading -> Text(
+                    inlineMd(b.text),
+                    style = if (b.level == 1) MaterialTheme.typography.titleLarge
+                            else MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                )
+                is MdBlock.Para -> Text(
+                    inlineMd(b.text),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(vertical = 1.dp)
+                )
+                is MdBlock.Bullet -> Row(modifier = Modifier.padding(vertical = 1.dp)) {
+                    Text("•  ", style = MaterialTheme.typography.bodyMedium)
+                    Text(inlineMd(b.text), style = MaterialTheme.typography.bodyMedium)
+                }
+                is MdBlock.Table -> Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                    b.rows.forEachIndexed { idx, cells ->
+                        val bold = idx == 0
+                        Row(modifier = Modifier.padding(vertical = 2.dp)) {
+                            Text(
+                                cells.getOrElse(0) { "" },
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.width(40.dp)
+                            )
+                            Text(
+                                inlineMd(cells.drop(1).joinToString("  ")),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        if (idx == 0) HorizontalDivider()
+                    }
                 }
             }
         }
