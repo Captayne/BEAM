@@ -1046,6 +1046,18 @@ fun SettingsScreen(viewModel: TorrentViewModel, onShareApp: () -> Unit = {}, onS
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // In-App-Update: nur sichtbar, wenn die Station eine neuere Version meldet.
+        val update by viewModel.update.collectAsState()
+        update?.let { u ->
+            Button(
+                onClick = { de.systragon.beam.update.AppUpdater.installLatest(context) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Install new version v${u.name}")
+            }
+            HorizontalDivider()
+        }
+
         Text(
             "Trackers",
             style = MaterialTheme.typography.titleMedium,

@@ -1,7 +1,9 @@
 package de.systragon.beam.desktop
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -11,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.res.useResource
@@ -68,7 +71,7 @@ fun main(args: Array<String>) {
         // Kompakte „kleine, aber leistungsstarke" Box: moderate Standardgröße statt riesigem Fenster
         // (auf 4K-Monitoren sonst übergroß). Bleibt frei skalierbar.
         val winState = androidx.compose.ui.window.rememberWindowState(
-            width = 500.dp, height = 840.dp,
+            width = 500.dp, height = 720.dp,
             position = androidx.compose.ui.window.WindowPosition(androidx.compose.ui.Alignment.Center)
         )
         Window(onCloseRequest = ::exitApplication, state = winState, title = "Beam $BEAM_VERSION", icon = beamIcon) {
@@ -567,6 +570,37 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
         parseMarkdown(body)
     }
 
+    // In-App-Update: null = aktuell/kein Hinweis; sonst der Versionsname (z. B. "1.0.52") → kleiner
+    // Button unten rechts. Einmal beim Start gegen das Stations-Manifest prüfen.
+    var updateName by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val mineBuild = BEAM_VERSION.substringAfterLast('.').toIntOrNull() ?: return@runCatching
+                val host = relayEndpoint().host
+                val txt = java.net.URL(RelayConfig.versionUrl(host)).openStream().bufferedReader().use { it.readText() }
+                // Kleines, selbst kontrolliertes JSON → ohne JSON-Lib per Regex (beam-desktop hat kein org.json).
+                val deskBlock = Regex(""""desktop"\s*:\s*\{([^}]*)\}""").find(txt)?.groupValues?.get(1) ?: return@runCatching
+                val latest = Regex(""""build"\s*:\s*(\d+)""").find(deskBlock)?.groupValues?.get(1)?.toIntOrNull() ?: return@runCatching
+                val name = Regex(""""name"\s*:\s*"([^"]*)"""").find(deskBlock)?.groupValues?.get(1) ?: "1.0.$latest"
+                if (latest > mineBuild) updateName = name
+            }
+        }
+    }
+
+    // Lädt das aktuelle MSI von der Station und startet den Windows-Installer (Major-Upgrade).
+    fun runUpdate() {
+        status = "Downloading update…"
+        Thread {
+            runCatching {
+                val host = relayEndpoint().host
+                val tmp = File(downloadDir, "Beam-update.msi")
+                java.net.URL(RelayConfig.msiUrl(host)).openStream().use { ins -> tmp.outputStream().use { ins.copyTo(it) } }
+                ProcessBuilder("msiexec", "/i", tmp.absolutePath).start()
+            }.onFailure { beamLog("[W] update failed: ${it.message}"); status = "Update download failed." }
+        }.start()
+    }
+
     MaterialTheme(colorScheme = scheme) {
         if (showHelp) {
             AlertDialog(
@@ -616,8 +650,9 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
                 )
             }
         ) { padding ->
+            Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
+                modifier = Modifier.fillMaxSize().padding(16.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -628,33 +663,32 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
                 // Chronology backup (directly under "Choose file(s)"): tags the .beam (.bk) → the
                 // receiver is asked for a destination folder (e.g. a NAS photo collection). Originals
                 // are sent 1:1 → encryption and video quality are disabled in this mode.
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = backupMode, onCheckedChange = { backupMode = it })
-                    Text("🗓️  Send Chronology  —  originals 1:1, receiver picks the destination (e.g. NAS)")
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = encryptOn && !backupMode, enabled = !backupMode, onCheckedChange = { encryptOn = it })
-                    Text(
-                        "Encrypt when sending (passphrase required)",
-                        color = if (backupMode) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified
+                // Kompakter Sende-Block: beide Checkboxen in EINER Zeile (Encrypt, dann Chrono), enge Felder.
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = encryptOn && !backupMode, enabled = !backupMode, onCheckedChange = { encryptOn = it })
+                        Text(
+                            "Encrypt using passphrase",
+                            color = if (backupMode) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Checkbox(checked = backupMode, onCheckedChange = { backupMode = it })
+                        Text("🗓️  Chrono")
+                    }
+                    CompactField(
+                        value = passphrase,
+                        onValueChange = { passphrase = it },
+                        placeholder = "Passphrase",
+                        enabled = !backupMode,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    CompactField(
+                        value = sendTag,
+                        onValueChange = { sendTag = it.take(BeamLink.TAG_MAX) },
+                        placeholder = "Tag (optional, on receiver's card)",
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-                OutlinedTextField(
-                    value = passphrase,
-                    onValueChange = { passphrase = it },
-                    label = { Text("Passphrase (encrypt when sending / decrypt when receiving)") },
-                    singleLine = true,
-                    enabled = !backupMode,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = sendTag,
-                    onValueChange = { sendTag = it.take(BeamLink.TAG_MAX) },
-                    label = { Text("Tag (optional, max ${BeamLink.TAG_MAX} — shown on the receiver's card)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "Quality:",
@@ -768,7 +802,58 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
                     modifier = Modifier.clickable { openFolder(downloadDir) }
                 )
             }
+            // Update: klein & bescheiden unten rechts, nur wenn die Station eine neuere Version meldet.
+            updateName?.let { name ->
+                TextButton(
+                    onClick = { runUpdate() },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
+                ) {
+                    Text(
+                        "⬆ Install v$name",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            }
         }
+    }
+}
+
+/**
+ * Schlankes einzeiliges Eingabefeld — wie ein OutlinedTextField, aber mit selbst gesetztem (kleinem)
+ * Innen-Padding, damit es nicht so viel Platz frisst. Placeholder wird bei leerem Wert gezeigt.
+ */
+@Composable
+private fun CompactField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        if (value.isEmpty()) {
+            Text(
+                placeholder,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = LocalContentColor.current),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 

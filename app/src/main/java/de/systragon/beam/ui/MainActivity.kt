@@ -100,6 +100,9 @@ class MainActivity : ComponentActivity() {
 
         requestRuntimePermissions()
 
+        // Einmal beim Start prüfen, ob die Station eine neuere Version meldet (Settings-Button).
+        viewModel.checkForUpdate()
+
         // Datei-Share/Magnetlink nur beim ersten Start verarbeiten — nicht bei Neuerstellung
         // (sonst taucht ein bereits gelöschter Transfer nach z. B. Drehung wieder auf).
         if (savedInstanceState == null) handleIntent(intent)

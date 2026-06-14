@@ -4,4 +4,6 @@
     <external-path name="external" path="." />
     <!-- .beam-Link-Dateien zum Teilen (cacheDir/beamlinks) -->
     <cache-path name="beam_links" path="beamlinks/" />
+    <!-- In-App-Update: geladenes APK (getExternalFilesDir/updates) an den Installer übergeben -->
+    <external-files-path name="updates" path="updates/" />
 </paths>

@@ -64,10 +64,15 @@ class BeamTracker(
         // Token-gated MSI-Auslieferung: NUR Beam (kennt das Token) kann die PC-Version vom VPS holen,
         // um sie weiterzuverteilen. Kein öffentlicher Download (Bandbreiten-/Leech-Schutz).
         server.createContext("/$token/Beam.msi") { ex -> safe(ex) { serveFile(ex, java.io.File("/root/beam-dist/Beam.msi"), "application/x-msi") } }
+        // Android-APK token-gated (gleicher Schutz wie MSI) → In-App-Update der Handy-App.
+        server.createContext("/$token/Beam.apk") { ex -> safe(ex) { serveFile(ex, java.io.File("/root/beam-dist/Beam.apk"), "application/vnd.android.package-archive") } }
+        // Versions-Manifest (statische Datei) → Clients prüfen, ob sie veraltet sind. Update per scp,
+        // OHNE Relay-Neustart (Route bleibt; nur die Datei wechselt).
+        server.createContext("/$token/version") { ex -> safe(ex) { serveFile(ex, java.io.File("/root/beam-dist/version.json"), "application/json") } }
         server.createContext("/") { ex -> respond(ex, "Beam Station\n".toByteArray()) }  // harmlose Health-Antwort
         server.executor = Executors.newCachedThreadPool()
         server.start()
-        log("Mini-Tracker läuft auf :$port/$token/announce  (+ /$token/Beam.msi)")
+        log("Mini-Tracker läuft auf :$port/$token/announce  (+ /$token/Beam.msi, /Beam.apk, /version)")
         Thread {
             while (true) { try { Thread.sleep(60_000) } catch (_: InterruptedException) {}; cleanup() }
         }.apply { isDaemon = true }.start()
@@ -87,7 +92,7 @@ class BeamTracker(
         }
         ex.sendResponseHeaders(200, f.length())
         ex.responseBody.use { out -> f.inputStream().use { it.copyTo(out) } }
-        log("MSI ausgeliefert: ${f.name} (${humanBytes(f.length())})")
+        log("Datei ausgeliefert: ${f.name} (${humanBytes(f.length())})")
     }
 
     /** Registriert die Verbindungs-IP als Sender für `hash` (40-Hex). Antwort schlicht „ok". */

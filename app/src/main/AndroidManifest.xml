@@ -16,6 +16,8 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Notification-Anzeige ab Android 13 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- In-App-Update: das geladene APK über den System-Installer installieren -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Empfangene Dateien in öffentliche Ordner schreiben (nur API < 29; ab 29 via MediaStore) -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"

@@ -18,6 +18,12 @@ object RelayConfig {
     /** Token-gated Download-URL der aktuellen PC-MSI auf der Station (für „Share PC-Beam!"). */
     fun msiUrl(host: String = DEFAULT_HOST) = "http://$host/$TOKEN/Beam.msi"
 
+    /** Token-gated Download-URL der aktuellen Android-APK (für das In-App-Update). */
+    fun apkUrl(host: String = DEFAULT_HOST) = "http://$host/$TOKEN/Beam.apk"
+
+    /** Versions-Manifest (JSON) der Station → Clients prüfen, ob sie veraltet sind. */
+    fun versionUrl(host: String = DEFAULT_HOST) = "http://$host/$TOKEN/version"
+
     /** Relay-Now: registriert die eigene IP als SENDER für [hashHex] (Rollen-Signal der Byte-Pipe). */
     fun seedUrl(hashHex: String, host: String = DEFAULT_HOST) = "http://$host/$TOKEN/seed?hash=$hashHex"
 

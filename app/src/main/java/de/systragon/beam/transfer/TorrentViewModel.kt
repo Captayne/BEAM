@@ -191,6 +191,19 @@ class TorrentViewModel(application: Application) : AndroidViewModel(application)
         TorrentManager.setDhtEnabled(enabled)
     }
 
+    // In-App-Update: null = aktuell/kein Hinweis; sonst die neuere veröffentlichte Version (Settings-Button).
+    private val _update = MutableStateFlow<de.systragon.beam.update.AppVersion?>(null)
+    val update: StateFlow<de.systragon.beam.update.AppVersion?> = _update
+
+    /** Fragt das Stations-Manifest (Hintergrund); setzt [update], wenn dort ein höherer versionCode steht. */
+    fun checkForUpdate() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val latest = de.systragon.beam.update.AppUpdater.fetchAndroidVersion() ?: return@launch
+            val mine = de.systragon.beam.update.AppUpdater.currentCode(getApplication())
+            _update.value = if (latest.code > mine) latest else null
+        }
+    }
+
     // Sekunden ohne Peer, nach denen ausgehendes µTP als Fallback zugeschaltet wird (3–60).
     private val _utpFallbackSeconds = MutableStateFlow(
         prefs.getInt(PREF_UTP_FALLBACK_SECONDS, UTP_FALLBACK_DEFAULT)
