@@ -601,6 +601,22 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
         }.start()
     }
 
+    // Verteilen: lädt APK/MSI token-gated von der Station nach Downloads/Beam/installer/ und öffnet
+    // den Explorer mit der MARKIERTEN Datei → der Nutzer leitet sie beliebig weiter (WhatsApp/Mail/Stick).
+    fun shareBinary(remoteUrl: String, fileName: String) {
+        status = "Fetching $fileName…"
+        Thread {
+            runCatching {
+                val dir = File(downloadDir, "installer").apply { mkdirs() }
+                val out = File(dir, fileName)
+                java.net.URL(remoteUrl).openStream().use { ins -> out.outputStream().use { ins.copyTo(it) } }
+                if (out.length() < 1_000_000) error("download too small (${out.length()} B)")
+                status = "Ready: $fileName  →  ${dir.absolutePath}"
+                selectInExplorer(dir, listOf(fileName))
+            }.onFailure { beamLog("[W] shareBinary failed: ${it.message}"); status = "Download failed: ${it.message}" }
+        }.start()
+    }
+
     MaterialTheme(colorScheme = scheme) {
         if (showHelp) {
             AlertDialog(
@@ -648,11 +664,27 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
                         titleContentColor = Color.White
                     )
                 )
+            },
+            bottomBar = {
+                // Verteil-Footer: Beam an andere weitergeben (APK/MSI von der Station) + Selbst-Update.
+                Surface(tonalElevation = 3.dp) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(onClick = { shareBinary(RelayConfig.apkUrl(relayEndpoint().host), "Beam.apk") }) { Text("📱 Share Android") }
+                        OutlinedButton(onClick = { shareBinary(RelayConfig.msiUrl(relayEndpoint().host), "Beam.msi") }) { Text("🖥 Share PC") }
+                        Spacer(Modifier.weight(1f))
+                        updateName?.let { name ->
+                            Button(onClick = { runUpdate() }) { Text("⬆ Update v$name") }
+                        }
+                    }
+                }
             }
         ) { padding ->
-            Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(16.dp)
+                modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -801,20 +833,6 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.clickable { openFolder(downloadDir) }
                 )
-            }
-            // Update: klein & bescheiden unten rechts, nur wenn die Station eine neuere Version meldet.
-            updateName?.let { name ->
-                TextButton(
-                    onClick = { runUpdate() },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
-                ) {
-                    Text(
-                        "⬆ Install v$name",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
             }
         }
     }
