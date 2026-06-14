@@ -71,7 +71,7 @@ fun main(args: Array<String>) {
         // Kompakte „kleine, aber leistungsstarke" Box: moderate Standardgröße statt riesigem Fenster
         // (auf 4K-Monitoren sonst übergroß). Bleibt frei skalierbar.
         val winState = androidx.compose.ui.window.rememberWindowState(
-            width = 500.dp, height = 720.dp,
+            width = 500.dp, height = 600.dp,
             position = androidx.compose.ui.window.WindowPosition(androidx.compose.ui.Alignment.Center)
         )
         Window(onCloseRequest = ::exitApplication, state = winState, title = "Beam $BEAM_VERSION", icon = beamIcon) {
