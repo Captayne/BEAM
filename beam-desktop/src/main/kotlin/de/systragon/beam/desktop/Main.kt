@@ -187,6 +187,16 @@ private fun trackers() = Trackers.parseTrackers(loadTrackerText())
 private fun relayEndpoint(): RelayConfig.Endpoint =
     RelayConfig.parse(runCatching { File(downloadDir, "relay.conf").takeIf { it.exists() }?.readText() }.getOrNull())
 
+// DHT-Schalter (persistiert in `Downloads/Beam/dht.conf`). **Default: AUS** = leiser Modus:
+// kein Ankündigen im öffentlichen DHT → keine fremden Crawler/µTP-Leecher am Infohash.
+// Eigener Tracker, Peer-Hint, LSD und Relay bleiben aktiv (LAN/normale Auffindung funktioniert weiter).
+private fun loadDhtPref(): Boolean =
+    runCatching { File(downloadDir, "dht.conf").takeIf { it.exists() }?.readText()?.trim()?.toBoolean() }.getOrNull() ?: false
+
+private fun saveDhtPref(on: Boolean) {
+    runCatching { File(downloadDir, "dht.conf").writeText(on.toString()) }
+}
+
 private val Blue = Color(0xFF2196F3)
 private val Green = Color(0xFF4CAF50)
 
@@ -201,7 +211,8 @@ private data class UiTransfer(
     val directBlocked: Boolean = false,  // Gegenüber bekannt, aber keine direkte Verbindung → Relay anbieten
     val relayEngaged: Boolean = false,   // Sender hat Relay-ON für diese Karte → Button grün
     val relayWaiting: Int = 0,           // wie viele Empfänger gerade hängen → Badge am Relay-Knopf
-    val tag: String? = null              // optionales Info-Tag → oben auf der Karte
+    val tag: String? = null,             // optionales Info-Tag → oben auf der Karte
+    val totalBytes: Long = 0L            // Gesamtgröße des Transfers → in Klammern hinter dem Tag
 )
 
 // Geduld, bevor „direkt blockiert" gemeldet wird (ab dem Moment, wo das Gegenüber bekannt wurde).
@@ -218,6 +229,7 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
     var encryptOn by remember { mutableStateOf(false) }                            // Senden verschlüsseln?
     var compressionLevel by remember { mutableStateOf(VideoCompressor.CompressionLevel.ORIGINAL) } // Video-Qualität
     var backupMode by remember { mutableStateOf(false) }                           // .beam als Backup taggen → Empfänger wählt Zielordner
+    var dhtOn by remember { mutableStateOf(loadDhtPref()) }                         // öffentliches DHT (Default aus = leiser Modus)
     var sendTag by remember { mutableStateOf("") }                                 // optionales Info-Tag fürs nächste Senden (max BeamLink.TAG_MAX)
     val saveDirs = remember { mutableMapOf<String, File>() }                        // infoHash → Zielordner (Backup wählbar)
     val backupHashes = remember { mutableSetOf<String>() }                          // infoHash der Backup-Empfänge (Top-Ordner flach auflösen)
@@ -395,6 +407,7 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
     LaunchedEffect(Unit) {
         runCatching { TorrentManager.startSession() }
             .onSuccess {
+                TorrentManager.setDhtEnabled(dhtOn)   // Default aus: kein öffentliches DHT → keine Fremden am Infohash
                 status = "Ready."
                 val sendFiles = mutableListOf<File>()
                 initialPaths.forEach { p ->
@@ -425,6 +438,12 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
                         val finished = st?.isFinished ?: false
                         // Seeder: insgesamt ausgelieferte Menge als % der Dateigröße (kann >100% sein).
                         val sentPct = if (!e.isDownload && e.fileSize > 0) ((st?.totalUpload() ?: 0L) * 100 / e.fileSize).toInt() else 0
+                        // Gesamtgröße: Sender kennt sie immer (e.fileSize), Empfänger erst ab Metadaten (totalWanted).
+                        val totalBytes = when {
+                            e.fileSize > 0 -> e.fileSize
+                            meta           -> st?.totalWanted() ?: 0L
+                            else           -> 0L
+                        }
                         // Empfang: fertige Dateien live im Explorer markieren (eintrudeln + sofort wegsortieren).
                         // Backup-Empfänge ausgenommen — die werden am Ende flach in den Zielordner aufgelöst
                         // (anderer Ordner) → dort öffnet resolveDownload das Endfenster.
@@ -501,7 +520,8 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
                             directBlocked = blocked,
                             relayEngaged = e.relayEngaged,
                             relayWaiting = e.relayWaiting,
-                            tag = e.tag
+                            tag = e.tag,
+                            totalBytes = totalBytes
                         )
                     }
                 // Backup-Downloads: ALLE Dateien flach in den gewählten Ordner (User-Wunsch:
@@ -718,6 +738,14 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
                             color = if (backupMode) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified
                         )
                         Spacer(Modifier.width(16.dp))
+                        // DHT aus (Default) = leiser Modus: keine fremden Crawler/µTP-Leecher am Infohash → LAN-Speed.
+                        Checkbox(checked = dhtOn, onCheckedChange = {
+                            dhtOn = it; saveDhtPref(it); TorrentManager.setDhtEnabled(it)
+                            status = if (it) "DHT on — public discovery (strangers may find the hash)."
+                                     else "DHT off — quiet mode (own tracker + LAN only)."
+                        })
+                        Text("🌐 DHT")
+                        Spacer(Modifier.width(16.dp))
                         Checkbox(checked = backupMode, onCheckedChange = { backupMode = it })
                         Text("🗓️  Chrono")
                     }
@@ -893,10 +921,20 @@ private fun CompactField(
 private fun TransferCard(t: UiTransfer, beamPath: String?) {
     Card(shape = RoundedCornerShape(12.dp), elevation = CardDefaults.cardElevation(2.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
-            t.tag?.takeIf { it.isNotBlank() }?.let { tg ->
-                Text("🏷  $tg", style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, maxLines = 2)
-                Spacer(Modifier.height(6.dp))
+            run {
+                val tg = t.tag?.takeIf { it.isNotBlank() }
+                val sizeStr = t.totalBytes.takeIf { it > 0 }?.let { humanBytes(it) }
+                val label = when {
+                    tg != null && sizeStr != null -> "🏷  $tg  ($sizeStr)"
+                    tg != null                    -> "🏷  $tg"
+                    sizeStr != null               -> "📦  $sizeStr"
+                    else                          -> null
+                }
+                if (label != null) {
+                    Text(label, style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, maxLines = 2)
+                    Spacer(Modifier.height(6.dp))
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(if (t.isDownload) "⬇" else "⬆", color = if (t.isDownload) Blue else Green,
