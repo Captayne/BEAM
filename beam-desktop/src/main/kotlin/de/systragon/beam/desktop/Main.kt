@@ -14,8 +14,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.res.useResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import de.systragon.beam.core.*
@@ -547,20 +553,51 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
         }
     }
 
-    // Kurz-Hilfe (aus Ressource help.md), als Dialog über den „❓ Help"-Knopf.
-    val helpText = remember { runCatching { useResource("help.md") { it.readBytes().decodeToString() } }.getOrDefault("Help file not found.") }
+    // Kurz-Hilfe (aus dem App-assets-Ordner: beamDesk_help_<lang>.md), Dialog über „❓ Help".
+    // Beim Öffnen immer zuerst Englisch; per Klick auf DE | EN umschaltbar.
     var showHelp by remember { mutableStateOf(false) }
+    var helpLang by remember { mutableStateOf("en") }
+    val helpBlocks = remember(helpLang) {
+        val raw = runCatching {
+            useResource("beamDesk_help_$helpLang.md") { it.readBytes().decodeToString() }
+        }.getOrDefault("Help file not found.")
+        // Marker-Zeile (# EN | DE) raus — den Umschalter bauen wir selbst.
+        val marker = Regex("""^\s*#?\s*(EN|DE)\s*\|\s*(EN|DE)\s*$""")
+        val body = raw.lines().filterNot { marker.matches(it) }.joinToString("\n").trimStart('\n')
+        parseMarkdown(body)
+    }
 
     MaterialTheme(colorScheme = scheme) {
         if (showHelp) {
             AlertDialog(
                 onDismissRequest = { showHelp = false },
                 confirmButton = { TextButton(onClick = { showHelp = false }) { Text("Close") } },
-                title = { Text("Beam! — Help") },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Beam! — Help", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text(
+                            "DE",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = if (helpLang == "de") FontWeight.Bold else FontWeight.Normal,
+                            color = if (helpLang == "de") MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clickable { helpLang = "de" }
+                        )
+                        Text("  |  ", style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "EN",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = if (helpLang == "en") FontWeight.Bold else FontWeight.Normal,
+                            color = if (helpLang == "en") MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clickable { helpLang = "en" }
+                        )
+                    }
+                },
                 text = {
-                    Box(Modifier.heightIn(max = 560.dp)) {
-                        Text(helpText, modifier = Modifier.verticalScroll(rememberScrollState()),
-                            style = MaterialTheme.typography.bodySmall)
+                    Box(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
+                        MarkdownHelp(helpBlocks)
                     }
                 }
             )
@@ -1026,4 +1063,114 @@ private fun humanBytes(n: Long): String {
     var idx = 0
     while (value >= 1024.0 && idx < units.lastIndex) { value /= 1024.0; idx++ }
     return "%.1f %s".format(value, units[idx])
+}
+
+// --- Leichtgewichtiger Markdown-Renderer (kein externer Renderer, 0 neue Deps) ---------------
+// Unterstützt: # / ## Überschriften, **fett**, _kursiv_, `code`, - Aufzählung, --- Trennlinie,
+// | Tabellen | (zweispaltig) und <br/> als echten Umbruch. Spiegelbild der Android-Variante.
+
+private sealed interface MdBlock {
+    data class Heading(val text: String, val level: Int) : MdBlock
+    data class Para(val text: String) : MdBlock
+    data class Bullet(val text: String) : MdBlock
+    data class Table(val rows: List<List<String>>) : MdBlock
+    object Rule : MdBlock
+    object Space : MdBlock
+}
+
+private fun parseMarkdown(md: String): List<MdBlock> {
+    val out = mutableListOf<MdBlock>()
+    val lines = md.lines()
+    var i = 0
+    val sepCell = Regex("""^:?-{2,}:?$""")
+    while (i < lines.size) {
+        val line = lines[i].trim()
+        when {
+            line.isEmpty() -> { out += MdBlock.Space; i++ }
+            line == "---" || line == "***" -> { out += MdBlock.Rule; i++ }
+            line.startsWith("## ") -> { out += MdBlock.Heading(line.removePrefix("## ").trim(), 2); i++ }
+            line.startsWith("# ") -> { out += MdBlock.Heading(line.removePrefix("# ").trim(), 1); i++ }
+            line.startsWith("- ") || line.startsWith("* ") -> { out += MdBlock.Bullet(line.drop(2).trim()); i++ }
+            line.startsWith("|") -> {
+                val rows = mutableListOf<List<String>>()
+                while (i < lines.size && lines[i].trim().startsWith("|")) {
+                    val cells = lines[i].trim().trim('|').split("|").map { it.trim() }
+                    if (cells.none { sepCell.matches(it) }) rows += cells
+                    i++
+                }
+                if (rows.isNotEmpty()) out += MdBlock.Table(rows)
+            }
+            else -> { out += MdBlock.Para(line); i++ }
+        }
+    }
+    return out
+}
+
+/** Inline-Formatierung: **fett**, _kursiv_, `code`, <br/> → echter Umbruch. */
+private fun inlineMd(src: String): androidx.compose.ui.text.AnnotatedString = buildAnnotatedString {
+    val s = src.replace(Regex("""<br\s*/?>"""), "\n")
+    val rx = Regex("""\*\*(.+?)\*\*|_(.+?)_|`(.+?)`""")
+    var last = 0
+    for (m in rx.findAll(s)) {
+        append(s.substring(last, m.range.first))
+        when {
+            m.groupValues[1].isNotEmpty() ->
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(m.groupValues[1]) }
+            m.groupValues[2].isNotEmpty() ->
+                withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(m.groupValues[2]) }
+            else ->
+                withStyle(SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 0.9.em)) { append(m.groupValues[3]) }
+        }
+        last = m.range.last + 1
+    }
+    append(s.substring(last))
+}
+
+@androidx.compose.runtime.Composable
+private fun MarkdownHelp(blocks: List<MdBlock>) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        blocks.forEach { b ->
+            when (b) {
+                is MdBlock.Space -> Spacer(Modifier.height(6.dp))
+                is MdBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                is MdBlock.Heading -> Text(
+                    inlineMd(b.text),
+                    style = if (b.level == 1) MaterialTheme.typography.titleLarge
+                            else MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                )
+                is MdBlock.Para -> Text(
+                    inlineMd(b.text),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(vertical = 1.dp)
+                )
+                is MdBlock.Bullet -> Row(modifier = Modifier.padding(vertical = 1.dp)) {
+                    Text("•  ", style = MaterialTheme.typography.bodyMedium)
+                    Text(inlineMd(b.text), style = MaterialTheme.typography.bodyMedium)
+                }
+                is MdBlock.Table -> Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                    b.rows.forEachIndexed { idx, cells ->
+                        val bold = idx == 0
+                        Row(modifier = Modifier.padding(vertical = 2.dp)) {
+                            Text(
+                                cells.getOrElse(0) { "" }.let { inlineMd(it) },
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(0.42f)
+                            )
+                            Text(
+                                inlineMd(cells.drop(1).joinToString("  ")),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        if (idx == 0) HorizontalDivider()
+                    }
+                }
+            }
+        }
+    }
 }

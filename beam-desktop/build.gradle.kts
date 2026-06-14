@@ -31,6 +31,12 @@ val desktopBuildNumber = run {
 }
 val desktopPackageVersion = "1.0.$desktopBuildNumber"
 
+// Help-Markdown zentral im App-assets-Ordner pflegen (eine Quelle für App + Desktop).
+// Von dort werden die beamDesk_help_<lang>.md mit ins Desktop-Image gepackt (useResource).
+sourceSets.named("main") {
+    resources.srcDir(rootProject.file("app/src/main/assets"))
+}
+
 dependencies {
     implementation(project(":beam-core"))
     implementation(compose.desktop.currentOs)
