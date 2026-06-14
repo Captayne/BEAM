@@ -218,6 +218,11 @@ private data class UiTransfer(
 // Geduld, bevor „direkt blockiert" gemeldet wird (ab dem Moment, wo das Gegenüber bekannt wurde).
 private const val RELAY_HINT_MS = 25_000L
 
+// TCP-first: ab dem Moment, wo sich beide am Tracker gesehen haben (peerSeenAt), so lange auf TCP
+// warten, bevor ausgehendes µTP als Fallback zugeschaltet wird. Greift NUR, wenn über TCP kein
+// Datenfluss zustande kommt (rate==0). Läuft TCP → nie µTP.
+private const val UTP_FALLBACK_MS = 20_000L
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
@@ -408,6 +413,7 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
         runCatching { TorrentManager.startSession() }
             .onSuccess {
                 TorrentManager.setDhtEnabled(dhtOn)   // Default aus: kein öffentliches DHT → keine Fremden am Infohash
+                TorrentManager.setOutgoingUtpEnabled(false)   // TCP-first: ausgehendes µTP aus, erst per Fallback an
                 status = "Ready."
                 val sendFiles = mutableListOf<File>()
                 initialPaths.forEach { p ->
@@ -424,6 +430,9 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
 
     // Status-Poll (1 s): Tracker-Health + Karten aus allen Transfers bauen, neueste zuoberst.
     LaunchedEffect(Unit) {
+        var lastPeerLogMs = 0L                          // Peer-Log drosseln (~6 s)
+        var utpEscalated = false                        // ist ausgehendes µTP aktuell zugeschaltet?
+        val stuckSince = mutableMapOf<String, Long>()   // infoHash → seit wann „bekannt aber kein TCP-Fluss"
         while (true) {
             runCatching {
                 TorrentManager.refreshTrackerStatus()
@@ -569,6 +578,57 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
                     if (e.isDownload && e.infoHash !in resolved) {
                         val fin = e.handle?.takeIf { it.isValid }?.status()?.isFinished ?: false
                         if (fin && resolveDownload(e.infoHash)) { resolved += e.infoHash; bringToFront() }   // „Done" nach vorn holen
+                    }
+                }
+
+                val nowT = System.currentTimeMillis()
+                val allT = TorrentManager.getAll()
+
+                // --- TCP-first mit gegateter µTP-Eskalation -----------------------------------------
+                // Zähler je Transfer startet ERST, wenn sich beide am Tracker gesehen haben (peerSeenAt)
+                // und ein Peer aktuell relevant ist (verbunden ODER am Tracker gelistet). µTP NUR, wenn
+                // über TCP kein Datenfluss zustande kommt (rate==0) ≥ UTP_FALLBACK_MS. Läuft TCP → nie µTP.
+                // Relay aktiv (User „Relay NOW") → µTP AUS (Relay ist reine TCP-Röhre).
+                run {
+                    val relayInPlay = allT.any { it.relayEngaged }
+                    var anyStuck = false
+                    for (e in allT) {
+                        val st2 = e.handle?.takeIf { it.isValid }?.status()
+                        if (st2 == null) { stuckSince.remove(e.infoHash); continue }
+                        val r = if (e.isDownload) st2.downloadRate() else st2.uploadRate()
+                        val active = st2.numPeers() > 0 || st2.listPeers() > 0
+                        if (!st2.isFinished && e.infoHash in peerSeenAt && active && r == 0) {
+                            val since = stuckSince.getOrPut(e.infoHash) { nowT }
+                            if (nowT - since >= UTP_FALLBACK_MS) anyStuck = true
+                        } else stuckSince.remove(e.infoHash)   // TCP trägt (oder fertig/leer) → Timer zurück
+                    }
+                    when {
+                        relayInPlay && utpEscalated ->
+                            { TorrentManager.setOutgoingUtpEnabled(false); utpEscalated = false; beamLog("µTP aus (Relay im Spiel, TCP-only)") }
+                        !relayInPlay && anyStuck && !utpEscalated ->
+                            { TorrentManager.setOutgoingUtpEnabled(true);  utpEscalated = true;  beamLog("µTP AN (Fallback: bekannter Peer, aber TCP trägt nicht)") }
+                        !relayInPlay && !anyStuck && utpEscalated ->
+                            { TorrentManager.setOutgoingUtpEnabled(false); utpEscalated = false; beamLog("µTP aus (TCP trägt wieder)") }
+                    }
+                }
+
+                // --- Peer-Diagnose-Log (~6 s): IP + Transport (TCP/µTP) + Richtung (ein/aus) + Rate ----
+                if (nowT - lastPeerLogMs >= 6000) {
+                    lastPeerLogMs = nowT
+                    val utpFlag = org.libtorrent4j.swig.peer_info.utp_socket.to_int()
+                    val localFlag = org.libtorrent4j.swig.peer_info.local_connection.to_int()
+                    allT.forEach { e ->
+                        val h = e.handle?.takeIf { it.isValid } ?: return@forEach
+                        val st2 = h.status()
+                        beamLog("NET ${e.fileName} ${if (e.isDownload) "DL" else "UP"} peers=${st2.numPeers()} list=${st2.listPeers()} down=${st2.downloadRate()} up=${st2.uploadRate()}")
+                        runCatching {
+                            h.peerInfo().forEach { p ->
+                                val fl = p.flags()
+                                val transport = if ((fl and utpFlag) != 0) "uTP" else "TCP"
+                                val dir = if ((fl and localFlag) != 0) "out" else "in "
+                                beamLog("  peer ${p.ip()} $transport/$dir down=${p.downSpeed()} up=${p.upSpeed()} ${p.client()}")
+                            }
+                        }
                     }
                 }
             }.onFailure { beamLog("poll loop error: ${it.stackTraceToString()}") }
