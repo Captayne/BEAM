@@ -75,6 +75,8 @@ class SeedingService : Service() {
         TorrentManager.startSession()
         // Gespeicherte DHT-Einstellung anwenden (Default an). Aus = leiser Modus (weniger Crawler am Hash).
         TorrentManager.setDhtEnabled(getSharedPreferences("beam", Context.MODE_PRIVATE).getBoolean("allow_dht", true))
+        // µTP-Tuning-Startwert anwenden (live über Settings umschaltbar; Default 0 = stock-LEDBAT).
+        TorrentManager.setUtpTuning(getSharedPreferences("beam", Context.MODE_PRIVATE).getInt("utp_tuning", 0))
         startForeground(NOTIFICATION_ID, buildNotification("Beam! ready"))
         acquireLocks()
         registerNetworkCallback()

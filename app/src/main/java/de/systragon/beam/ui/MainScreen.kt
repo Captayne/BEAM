@@ -1155,6 +1155,23 @@ fun SettingsScreen(viewModel: TorrentViewModel, onShareApp: () -> Unit = {}, onS
             )
         }
 
+        // µTP-Tuning — LIVE-Regler (0 = höfliches LEDBAT/Default .. 1000 = aggressiv). Wirkt NUR auf
+        // µTP-Verbindungen (CGNAT/Mobilfunk), nicht auf TCP. Während einer µTP-Verbindung schieben →
+        // Durchsatz sollte sich ändern. Wert greift sofort live.
+        Spacer(modifier = Modifier.height(12.dp))
+        val utpTune by viewModel.utpTuning.collectAsState()
+        val utpTargetMs = 100 + (2900 * utpTune / 1000)
+        Text(
+            "µTP tuning: $utpTune   (target_delay ${utpTargetMs} ms — 0 = polite, 1000 = aggressive)",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Slider(
+            value = utpTune.toFloat(),
+            onValueChange = { viewModel.setUtpTuning(it.toInt()) },
+            valueRange = 0f..1000f
+        )
+
         HorizontalDivider()
 
         Text(

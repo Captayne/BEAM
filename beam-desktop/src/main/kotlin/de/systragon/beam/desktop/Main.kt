@@ -197,6 +197,14 @@ private fun saveDhtPref(on: Boolean) {
     runCatching { File(downloadDir, "dht.conf").writeText(on.toString()) }
 }
 
+// µTP-Tuning-Level (0..1000), persistiert in `Downloads/Beam/utp.conf`. Default 0 = stock-LEDBAT.
+private fun loadUtpTuning(): Int =
+    runCatching { File(downloadDir, "utp.conf").takeIf { it.exists() }?.readText()?.trim()?.toInt() }.getOrNull()?.coerceIn(0, 1000) ?: 0
+
+private fun saveUtpTuning(level: Int) {
+    runCatching { File(downloadDir, "utp.conf").writeText(level.coerceIn(0, 1000).toString()) }
+}
+
 private val Blue = Color(0xFF2196F3)
 private val Green = Color(0xFF4CAF50)
 
@@ -235,6 +243,7 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
     var compressionLevel by remember { mutableStateOf(VideoCompressor.CompressionLevel.ORIGINAL) } // Video-Qualität
     var backupMode by remember { mutableStateOf(false) }                           // .beam als Backup taggen → Empfänger wählt Zielordner
     var dhtOn by remember { mutableStateOf(loadDhtPref()) }                         // öffentliches DHT (Default aus = leiser Modus)
+    var utpTuning by remember { mutableStateOf(loadUtpTuning()) }                   // µTP/LEDBAT-Tuning live 0..1000
     var sendTag by remember { mutableStateOf("") }                                 // optionales Info-Tag fürs nächste Senden (max BeamLink.TAG_MAX)
     val saveDirs = remember { mutableMapOf<String, File>() }                        // infoHash → Zielordner (Backup wählbar)
     val backupHashes = remember { mutableSetOf<String>() }                          // infoHash der Backup-Empfänge (Top-Ordner flach auflösen)
@@ -414,6 +423,7 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
             .onSuccess {
                 TorrentManager.setDhtEnabled(dhtOn)   // Default aus: kein öffentliches DHT → keine Fremden am Infohash
                 TorrentManager.setOutgoingUtpEnabled(false)   // TCP-first: ausgehendes µTP aus, erst per Fallback an
+                TorrentManager.setUtpTuning(utpTuning)        // µTP-Tuning-Startwert anwenden (live umschaltbar)
                 status = "Ready."
                 val sendFiles = mutableListOf<File>()
                 initialPaths.forEach { p ->
@@ -846,14 +856,28 @@ private fun BeamApp(initialPaths: List<String>, bringToFront: () -> Unit = {}) {
                         }
                     }
                 }
-                // Editierbare Tracker-Liste (ausklappbar). Unsere private Station steht ganz oben;
-                // zum reinen Privat-Test die öffentlichen Zeilen löschen und speichern.
+                // Advanced (ausklappbar): µTP-Tuning + Trackerliste — hält den Hauptscreen schlank.
                 var showTrackers by remember { mutableStateOf(false) }
                 var trackerText by remember { mutableStateOf(loadTrackerText()) }
                 TextButton(onClick = { showTrackers = !showTrackers }) {
-                    Text((if (showTrackers) "▾" else "▸") + "  🛰️  Trackers (advanced)")
+                    Text((if (showTrackers) "▾" else "▸") + "  ⚙️  Advanced (µTP tuning, trackers)")
                 }
                 if (showTrackers) {
+                    // µTP-Tuning LIVE-Regler (0 = stock-LEDBAT .. 1000 = aggressiv). Wirkt nur auf µTP
+                    // (TCP bleibt TCP) → auf dem PC selten nötig (selten CGNAT). Live schiebbar.
+                    val targetMs = 100 + (2900 * utpTuning / 1000)
+                    Text(
+                        "µTP tuning: $utpTuning   (target_delay ${targetMs} ms)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Slider(
+                        value = utpTuning.toFloat(),
+                        onValueChange = { v -> utpTuning = v.toInt(); TorrentManager.setUtpTuning(utpTuning) },
+                        onValueChangeFinished = { saveUtpTuning(utpTuning); status = "µTP tuning = $utpTuning gespeichert" },
+                        valueRange = 0f..1000f
+                    )
+                    Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = trackerText,
                         onValueChange = { trackerText = it },

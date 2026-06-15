@@ -216,6 +216,18 @@ class TorrentViewModel(application: Application) : AndroidViewModel(application)
         prefs.edit().putInt(PREF_UTP_FALLBACK_SECONDS, v).apply()
     }
 
+    // µTP/LEDBAT-Tuning 0..1000 (live umschaltbar; 0 = stock-LEDBAT/höflich, 1000 = aggressiv).
+    // Wirkt NUR auf µTP-Verbindungen (CGNAT/Mobilfunk) — TCP bleibt unberührt.
+    private val _utpTuning = MutableStateFlow(prefs.getInt(PREF_UTP_TUNING, 0))
+    val utpTuning: StateFlow<Int> = _utpTuning
+
+    fun setUtpTuning(value: Int) {
+        val v = value.coerceIn(0, 1000)
+        _utpTuning.value = v
+        prefs.edit().putInt(PREF_UTP_TUNING, v).apply()
+        TorrentManager.setUtpTuning(v)   // sofort live anwenden
+    }
+
     private fun loadCompressionLevel(): VideoCompressor.CompressionLevel =
         runCatching {
             VideoCompressor.CompressionLevel.valueOf(prefs.getString("comp_level", "ORIGINAL")!!)
@@ -760,6 +772,7 @@ class TorrentViewModel(application: Application) : AndroidViewModel(application)
     companion object {
         // µTP-Fallback: Sekunden ohne Peer bis ausgehendes µTP zugeschaltet wird (einstellbar in Settings).
         const val PREF_UTP_FALLBACK_SECONDS = "utp_fallback_seconds"
+        const val PREF_UTP_TUNING = "utp_tuning"
         const val UTP_FALLBACK_DEFAULT = 15
         const val UTP_FALLBACK_MIN = 3
         const val UTP_FALLBACK_MAX = 60

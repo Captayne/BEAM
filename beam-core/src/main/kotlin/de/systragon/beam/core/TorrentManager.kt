@@ -60,6 +60,34 @@ object TorrentManager {
      * öffentlichen DHT → deutlich weniger ungebetene Crawler am Infohash. Eigener Tracker, Peer-Hint
      * und Relay bleiben aktiv (Auffindung bleibt für den normalen Fall erhalten).
      */
+    /**
+     * µTP/LEDBAT-Tuning zur Laufzeit, **live umschaltbar** (greift sofort, auch während einer laufenden
+     * µTP-Verbindung). [level] 0..1000:
+     *  - 0    = libtorrent-Default (höfliches LEDBAT, gibt bei Latenz schnell nach → throttled)
+     *  - 1000 = maximal aggressiv (delay-Backoff praktisch aus, schneller Ramp-up, sanfte Loss-Reaktion)
+     * Skaliert die drei einzigen µTP-Knöpfe linear: utp_target_delay 100→3000 ms, utp_gain_factor
+     * 3000→100000, utp_loss_multiplier 50→10. Wirkt nur, wenn µTP überhaupt benutzt wird (TCP bleibt TCP).
+     */
+    fun setUtpTuning(level: Int) {
+        if (!session.isRunning) return
+        val l = level.coerceIn(0, 1000)
+        val f = l / 1000.0
+        fun lerp(a: Int, b: Int) = (a + (b - a) * f).toInt()
+        val targetDelay = lerp(100, 3000)
+        val gain = lerp(3000, 100000)
+        val loss = lerp(50, 10)
+        try {
+            val s = org.libtorrent4j.SettingsPack()
+            s.setInteger(org.libtorrent4j.swig.settings_pack.int_types.utp_target_delay.swigValue(), targetDelay)
+            s.setInteger(org.libtorrent4j.swig.settings_pack.int_types.utp_gain_factor.swigValue(), gain)
+            s.setInteger(org.libtorrent4j.swig.settings_pack.int_types.utp_loss_multiplier.swigValue(), loss)
+            session.applySettings(s)
+            BeamLog.i(TAG, "µTP-Tuning=$l → target_delay=${targetDelay}ms gain=$gain loss_mult=$loss")
+        } catch (e: Exception) {
+            BeamLog.w(TAG, "setUtpTuning Fehler: ${e.message}")
+        }
+    }
+
     fun setDhtEnabled(enabled: Boolean) {
         if (!session.isRunning) return
         try {
@@ -96,17 +124,9 @@ object TorrentManager {
             // Standardmäßig gibt µTP bewusst nach (LEDBAT): sobald die Latenz über das Ziel
             // steigt, bremst es → der „Sägezahn" im Durchsatz. Da wir hier *die* Übertragung
             // sind und nicht im Hintergrund nachgeben wollen, drehen wir die Staukontrolle auf.
-            // utp_target_delay: mehr Queueing-Latenz tolerieren, bevor µTP zurückregelt (Default 100 ms).
-            settings.setInteger(
-                org.libtorrent4j.swig.settings_pack.int_types.utp_target_delay.swigValue(), 300)
-            // utp_gain_factor: wie viele Bytes das Congestion-Window pro RTT wachsen darf
-            // (Default 3000) → höher = schnellerer Ramp-up.
-            settings.setInteger(
-                org.libtorrent4j.swig.settings_pack.int_types.utp_gain_factor.swigValue(), 16000)
-            // utp_loss_multiplier: wie stark das Fenster bei Paketverlust gekürzt wird
-            // (Default 50 %) → kleiner = aggressivere Erholung.
-            settings.setInteger(
-                org.libtorrent4j.swig.settings_pack.int_types.utp_loss_multiplier.swigValue(), 20)
+            // µTP/LEDBAT-Werte werden NICHT hier fix gesetzt, sondern zur Laufzeit über setUtpTuning()
+            // (Default 0 = libtorrent-Default/höflich). So lässt sich das Tuning LIVE umschalten und der
+            // Effekt während einer laufenden µTP-Verbindung beobachten. Startwert appl't die App.
 
             // ut_metadata explizit aktivieren — damit Peers Metadaten von uns laden können
             settings.setBoolean(
