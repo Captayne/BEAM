@@ -68,6 +68,10 @@ class SeedingService : Service() {
     // wieder Peers da sind, zurück auf TCP-only.
     private var stuckSinceMs = 0L
     private var utpFallbackActive = false
+    // infoHashes, deren Gegenüber sich am Tracker gezeigt hat (listPeers>0). Erst DANN darf der µTP-
+    // Fallback-Timer laufen — sonst würde ein Download, dessen Sender noch gar nicht da ist (Empfänger
+    // hat zu früh geklickt), voreilig auf µTP eskalieren. Spiegelt die Desktop-Logik (peerSeenAt).
+    private val peerSeenAt = mutableSetOf<String>()
 
     override fun onCreate() {
         super.onCreate()
@@ -118,6 +122,7 @@ class SeedingService : Service() {
     private fun resetTransportBaseline() {
         stuckSinceMs = 0L
         utpFallbackActive = false
+        peerSeenAt.clear()
         TorrentManager.setOutgoingUtpEnabled(false)
     }
 
@@ -250,18 +255,31 @@ class SeedingService : Service() {
             }
             return
         }
-        val needyNoPeer = TorrentManager.getAll().any { e ->
-            e.isDownload &&
-                (e.state == TorrentState.FETCHING_METADATA || e.state == TorrentState.DOWNLOADING) &&
-                ((e.handle?.takeIf { it.isValid }?.status()?.numPeers() ?: 0) == 0)
+        // peerSeenAt befüllen: sobald sich das Gegenüber am Tracker zeigt (listPeers>0), gilt der Transfer
+        // als „beide haben sich gesehen" (wie Desktop). Erst danach darf der Fallback-Timer laufen.
+        TorrentManager.getAll().forEach { e ->
+            val lp = e.handle?.takeIf { it.isValid }?.status()?.listPeers() ?: 0
+            if (lp > 0) peerSeenAt.add(e.infoHash)
         }
-        if (needyNoPeer) {
+        // µTP-Fallback NUR wenn: (a) wir Downloader sind, (b) das Gegenüber am Tracker gesehen wurde
+        // (peerSeenAt), (c) ein Peer aktuell relevant ist (verbunden ODER gelistet) UND (d) über TCP KEIN
+        // Datenfluss zustande kommt (downloadRate==0). Ist der Sender noch gar nicht da (kein peerSeenAt),
+        // bleibt es TCP — keine voreilige µTP-Eskalation, wenn der Empfänger nur zu früh geklickt hat.
+        val needyStuck = TorrentManager.getAll().any { e ->
+            val st = e.handle?.takeIf { it.isValid }?.status()
+            st != null && e.isDownload && !st.isFinished &&
+                (e.state == TorrentState.FETCHING_METADATA || e.state == TorrentState.DOWNLOADING) &&
+                e.infoHash in peerSeenAt &&
+                (st.numPeers() > 0 || st.listPeers() > 0) &&
+                st.downloadRate() == 0
+        }
+        if (needyStuck) {
             val now = System.currentTimeMillis()
             if (stuckSinceMs == 0L) stuckSinceMs = now
             val thresholdMs = getSharedPreferences("beam", Context.MODE_PRIVATE)
                 .getInt(TorrentViewModel.PREF_UTP_FALLBACK_SECONDS, TorrentViewModel.UTP_FALLBACK_DEFAULT) * 1000L
             if (!utpFallbackActive && now - stuckSinceMs >= thresholdMs) {
-                Log.i("SeedingService", "Kein Peer seit ${(now - stuckSinceMs) / 1000}s → ausgehendes µTP AN (Fallback)")
+                Log.i("SeedingService", "Gegenüber am Tracker gesehen, aber TCP trägt nicht seit ${(now - stuckSinceMs) / 1000}s → ausgehendes µTP AN (Fallback)")
                 TorrentManager.setOutgoingUtpEnabled(true)
                 utpFallbackActive = true
             }

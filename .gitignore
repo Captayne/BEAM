@@ -36,6 +36,8 @@ Thumbs.db
 /tools/wix3/
 #     - gebündeltes ffmpeg.exe (~97 MB) — gyan.dev essentials
 /beam-desktop/desktop-resources/**/ffmpeg/ffmpeg.exe
+#     - BBR-Test-Native (arm64 libtorrent4j.so, ~12 MB) — lokal/WSL gebaut, via -PbbrAndroid eingebunden
+/app/src/bbr/
 
 # SpliceTest-Artefakte (5MB-Binaerdateien)
 beam-relay/splice-test/

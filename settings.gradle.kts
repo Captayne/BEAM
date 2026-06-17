@@ -17,6 +17,7 @@ plugins {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        mavenLocal() // für unser lokales libtorrent4j-BBR-Jar (2.1.0-39-beam-bbr1)
         google()
         mavenCentral()
     }
