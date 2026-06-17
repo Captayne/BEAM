@@ -73,8 +73,8 @@ android {
 }
 
 // BBR-Test (opt-in via -PbbrAndroid): unser gepatchtes libtorrent4j (BBR als µTP-Default).
-// Lädt die arm64-BBR-.so aus src/bbr/jniLibs statt des Stock-arm64-Artefakts + forciert das passende
-// -39-Jar (JNI-Match). Ohne das Flag = normaler Build, komplett unberührt.
+// Lädt die BBR-.so für ALLE ABIs (arm64/armeabi-v7a/x86_64) aus src/bbr/jniLibs statt der Stock-
+// Artefakte + forciert das passende -39-Jar (JNI-Match). Ohne das Flag = normaler Build, unberührt.
 val bbrAndroid = project.hasProperty("bbrAndroid")
 if (bbrAndroid) {
     android.sourceSets.getByName("main").jniLibs.srcDir("src/bbr/jniLibs")
@@ -86,9 +86,11 @@ dependencies {
     implementation(project(":beam-core"))
     // libtorrent4j — Torrent-Engine (Kern + Android-Architekturen)
     implementation("org.libtorrent4j:libtorrent4j:2.1.0-31")
-    if (!bbrAndroid) implementation("org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-31") // BBR-Build: arm64 aus src/bbr/jniLibs
-    implementation("org.libtorrent4j:libtorrent4j-android-arm:2.1.0-31")
-    implementation("org.libtorrent4j:libtorrent4j-android-x86_64:2.1.0-31")
+    if (!bbrAndroid) {  // BBR-Build: ALLE Architekturen kommen aus src/bbr/jniLibs (sonst Dublette mit Stock)
+        implementation("org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-31")
+        implementation("org.libtorrent4j:libtorrent4j-android-arm:2.1.0-31")
+        implementation("org.libtorrent4j:libtorrent4j-android-x86_64:2.1.0-31")
+    }
     implementation("androidx.compose.material:material-icons-extended")
     // ExoPlayer (media3) — Video-Streaming während des Downloads
     implementation(libs.androidx.media3.exoplayer)
