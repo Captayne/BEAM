@@ -37,14 +37,15 @@ sourceSets.named("main") {
     resources.srcDir(rootProject.file("app/src/main/assets"))
 }
 
-// BBR-Test: wenn die gepatchte Nativ via -PbbrDll/BEAM_BBR_DLL geladen wird, muss auch das
-// passende Java-Jar (gleicher -39-Stand wie die Nativ) her — sonst UnsatisfiedLinkError (z. B.
-// bdecode_node_bdecode hat zwischen -31 und -39 eine andere Signatur). Nur dann forcieren;
-// normale Builds bleiben auf dem Stock-2.1.0-31.
-if ((project.findProperty("bbrDll") as String?) != null || System.getenv("BEAM_BBR_DLL") != null) {
-    configurations.all {
-        resolutionStrategy.force("org.libtorrent4j:libtorrent4j:2.1.0-39-beam-bbr1")
-    }
+// BBR-Release (opt-in via -PbbrDll / BEAM_BBR_DLL): unsere gepatchte libtorrent4j (BBR als µTP-Default)
+// INS PAKET bündeln statt der Stock-DLL. Die DLL liegt unter src/bbr/resources/lib/x86_64/libtorrent4j.dll
+// und wird von ensureNativeLib() aus dem Classpath extrahiert — KEIN absoluter Pfad, läuft auf jeder
+// Maschine (wichtig fürs Freunde-MSI!). Das passende -39-Jar wird forciert (JNI-Match: bdecode_node_bdecode
+// hat zwischen -31 und -39 eine andere Signatur). Normale Builds bleiben unberührt auf Stock-2.1.0-31.
+val bbr = (project.findProperty("bbrDll") as String?) != null || System.getenv("BEAM_BBR_DLL") != null
+if (bbr) {
+    configurations.all { resolutionStrategy.force("org.libtorrent4j:libtorrent4j:2.1.0-39-beam-bbr1") }
+    sourceSets.named("main") { resources.srcDir("src/bbr/resources") }
 }
 
 dependencies {
@@ -53,7 +54,7 @@ dependencies {
     implementation(compose.material3)
     // libtorrent4j-Desktop-Native-Libs (für echtes Seeding/Download auf dem PC, später genutzt).
     // currentOs greift zur Laufzeit; alle drei deklarieren macht die Distribution portabel.
-    runtimeOnly("org.libtorrent4j:libtorrent4j-windows:2.1.0-31")
+    if (!bbr) runtimeOnly("org.libtorrent4j:libtorrent4j-windows:2.1.0-31") // BBR: DLL kommt aus src/bbr/resources
     runtimeOnly("org.libtorrent4j:libtorrent4j-linux:2.1.0-31")
     runtimeOnly("org.libtorrent4j:libtorrent4j-macos:2.1.0-31")
 }
@@ -67,14 +68,6 @@ compose.desktop {
 
         // Version zur Laufzeit verfügbar machen (für die Titelzeile) — gilt für `run` UND das Paket.
         jvmArgs += "-Dbeam.version=$desktopPackageVersion"
-
-        // BBR-Test (opt-in): unsere gepatchte libtorrent4j-Nativ (mit BBR als µTP-Default) laden,
-        // statt der gebundelten Stock-DLL. Nur aktiv, wenn der Pfad gesetzt ist → normale Builds bleiben
-        // unberührt. Nutzung:  gradlew :beam-desktop:run -PbbrDll=C:\l4j\libtorrent4j\build\torrent4j.dll
-        ((project.findProperty("bbrDll") as String?) ?: System.getenv("BEAM_BBR_DLL"))?.let { dll ->
-            jvmArgs += "-Dlibtorrent4j.jni.path=$dll"
-            println("[BBR] beam-desktop lädt Nativ-Lib: $dll")
-        }
 
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Dmg)
