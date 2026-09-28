@@ -1,11 +1,15 @@
 # BEAM!
 
-**Dateien zwischen Android und PC teilen – direkt, in Originalqualität und ohne Benutzerkonto.**
+**Dateien zwischen Android und PC und untereinander teilen – direkt, in Originalqualität und ohne Benutzerkonto.**
 
 BEAM! überträgt Dateien über Peer-to-Peer-Verbindungen auf Basis von BitTorrent.
 Eine kleine `.beam`-Datei verbindet Sender und Empfänger; sie kann zum Beispiel
 per Messenger oder E-Mail weitergegeben werden. Ein selbst betreibbares Relay
 kann helfen, wenn keine direkte Verbindung zustande kommt.
+Bei der Vermittlung des Senders zum Empfänger kommt die Bibliothek LibTorrent zum Einsatz, um vom dezentralen Vermittlungsnetz zu profitieren. 
+Die zugrundeliegende BitTorrent Library wurde zum Zwecke der Übertragungsbandbreite modifiziert. Das LEDBAT Protokoll wurde durch eine High-Speed Variante ersetzt. Nicht die Latenzen entscheiden über die Bandbreite, sondern die gemessene Bandbreite. Sobald konkurrierender Verkehr auf der Leitung existiert, drosselt BEAM! die Bandbreite im Gegensatz zu LEDBAT nicht zwingend, sondern fordert im Wettbewerb maximalen Durchsatz.  Dieses modifiziert libtorrent Bibilothek daher bitte nicht in anderen Bittorrent clients verwenden. Wir gehen davon aus, dass dies bei BEAM kein Problem ist, da es nur zwischen zwei Parteien und auch nur ganz kurz zum Einsatz kommt, und nicht auf dedizierten Servern riesige Mengen an Files hostet und in alle Welt verteilt. Der BEAM Algoritmus könnte hier zu Netzwerk Problemen führen.  Im lokalen Netzwerk von Smartphone zu PC über das lokale Wifi wurden vom Anwender über 120MB/s gemessen. 
+Möchte man über Netzwerk-Grenzen hinweg Daten austauschen kommt die Stärke von Bittorrent zum Zuge, das mit µTP oft gute Chancen hat, durch Carrier-Gate Network Adress Translations hindurch zu tunneln. Firewalls und IT Sicherheit wie z.B. ZScaler wird aber nicht zu knacken versucht. Es könnte für den Anwender zu Problemen führen, weil solche Versuche (mit Bittorrent-Protokoll aus Firmennetzen Daten zu senden oder zu empfangen) protololliert werden. 
+
 
 Dieses gemeinsame Repository enthält drei Anwendungen und ihren geteilten Kern:
 
