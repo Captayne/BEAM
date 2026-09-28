@@ -1,5 +1,14 @@
 # BEAM in der GitHub-Cloud bauen
 
+## Geprüfter Probelauf
+
+Am 28. September 2026 wurden alle drei Ziele aus einem frischen GitHub-Checkout
+erfolgreich gebaut und als private Artefakte hochgeladen:
+[erster erfolgreicher Lauf](https://github.com/Captayne/BEAM/actions/runs/36442573334).
+Gebauter Commit: `69d5a5b766c8f5fcf7107840543a7f36ce723201`.
+Der Test bestätigt das Erzeugen der Pakete; eine Installation auf Geräten oder
+ein Funktionstest der Übertragung ist damit nicht durchgeführt.
+
 ## Starten und herunterladen
 
 1. [BEAM - Cloud Build](https://github.com/Captayne/BEAM/actions/workflows/cloud-build.yml)

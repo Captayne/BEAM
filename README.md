@@ -92,15 +92,18 @@ Relay-JAR allein genügt nicht. `build.cmd` baut lokal und lädt nichts auf eine
 Server hoch. Die vorhandenen separaten Deployment-Skripte führen dagegen
 Uploads aus und müssen vor Verwendung für die eigene Infrastruktur geprüft werden.
 
-**Stand der Reproduzierbarkeit:** Alle drei Builds wurden am 28. September 2026
-in der eingerichteten Windows-Umgebung erfolgreich offline gebaut. Toolchains,
-Dependency-Caches, das gebündelte FFmpeg und optionale BBR-Binärdateien sind
-nicht in Git enthalten. Ein frischer Clone ist deshalb noch nicht ohne weitere
-Einrichtung baubar. Das Einrichtungsskript und ein Test aus einem frischen
-Clone stehen vor der öffentlichen Freigabe noch aus. Die Build-Starter verwenden
-`--offline`; der erste Download neuer Abhängigkeiten muss ohne diese Option erfolgen.
+**Geprüfter Stand:** Alle drei Builds wurden am 28. September 2026 sowohl lokal
+offline unter Windows als auch aus frischen GitHub-Checkouts in der Cloud
+erfolgreich erstellt. Der [erste Cloud-Lauf](https://github.com/Captayne/BEAM/actions/runs/36442573334)
+enthält die Android-APK, das Windows-MSI und die VPS-Distribution als private Downloads.
 
-Details zur vorhandenen Umgebung: [BUILD-LOCAL.md](BUILD-LOCAL.md).
+Die Cloud richtet die Standard-Builds automatisch ein. Für einen lokalen Clone
+müssen JDK, Android SDK und Zusatzdateien weiterhin eingerichtet werden:
+[BUILD-LOCAL.md](BUILD-LOCAL.md). Die lokalen Starter verwenden `--offline`;
+der erste Download neuer Abhängigkeiten muss ohne diese Option erfolgen.
+Die optionalen BBR-Binärdateien bleiben lokal und werden vom Cloud-Workflow
+nicht verwendet. Ein erfolgreicher Build ersetzt keinen Geräte- oder Netzwerktest.
+
 
 ## Projektstruktur
 
