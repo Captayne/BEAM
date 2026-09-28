@@ -1,0 +1,77 @@
+name: BEAM - Cloud Build
+run-name: BEAM ${{ inputs.target }} - run ${{ github.run_number }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: What should be built?
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - android
+          - pc
+          - vps
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beam-cloud-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(inputs.target == 'all' && '["android","pc","vps"]' || format('["{0}"]', inputs.target)) }}
+    runs-on: ${{ matrix.target == 'pc' && 'windows-2022' || 'ubuntu-24.04' }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GRADLE_USER_HOME: ${{ github.workspace }}/tools/gradle-home
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Temurin JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-path: |
+            tools/gradle-home/caches
+            tools/gradle-home/wrapper
+          cache-dependency-path: |
+            gradle/libs.versions.toml
+            gradle/wrapper/gradle-wrapper.properties
+            settings.gradle.kts
+            build.gradle.kts
+            app/build.gradle.kts
+            beam-core/build.gradle.kts
+            beam-desktop/build.gradle.kts
+            beam-relay/build.gradle.kts
+
+      - name: Prepare SDK and package resources
+        run: ./tools/ci/prepare.ps1 -Target '${{ matrix.target }}'
+
+      - name: Compile and package
+        run: ./tools/ci/build.ps1 -Target '${{ matrix.target }}'
+
+      - name: Upload private build download
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: BEAM-${{ matrix.target }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: cloud-artifacts/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

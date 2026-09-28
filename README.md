@@ -54,6 +54,16 @@ Passphrase getrennt übermitteln.
 - **Entwicklung:** JDK 21 mit `jpackage`, Android SDK (Compile SDK 35),
   Gradle 9.4.1 über den Wrapper und WiX 3 für das Windows-MSI.
 
+## Cloud-Builds auf GitHub
+
+Unter **Actions > BEAM - Cloud Build > Run workflow** lassen sich Android,
+Windows-PC und VPS-Relay einzeln oder gemeinsam bauen. Dein lokaler Rechner
+wird dabei nicht verwendet. Die fertigen Pakete stehen sieben Tage als private
+Downloads am jeweiligen Lauf bereit.
+
+Start und Hinweise zur Android-Testsignierung:
+[Cloud-Build-Anleitung](docs/CLOUD-BUILDS.md).
+
 ## Bauen unter Windows
 
 Die lokale Entwicklungsumgebung verwendet Toolchains und Caches unter `tools/`.

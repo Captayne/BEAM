@@ -60,3 +60,6 @@ COMMIT_MSG.tmp
 .env
 .env.*
 !*.example
+
+/tools/ffmpeg-download/
+/cloud-artifacts/
