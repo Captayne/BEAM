@@ -45,3 +45,18 @@ Thumbs.db
 beam-relay/splice-test/
 memory/untitled.md
 COMMIT_MSG.tmp
+
+# Portable build toolchains and dependency caches
+/tools/jdk/
+/tools/android-sdk/
+/tools/gradle-home/
+/tools/maven-repository/
+
+/tools/github-cli/
+/docs/LICENSE-MIT.proposed.txt
+/beam_torrent/
+*.jks
+*.keystore
+.env
+.env.*
+!*.example

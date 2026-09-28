@@ -3,7 +3,7 @@
 # damit "Share PC-Beam!" auf Android immer die NEUESTE PC-Version verteilt.
 # Aufruf:  .\build-pc-beam.ps1
 $ErrorActionPreference = 'Stop'
-$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot"   # JDK mit jpackage
+. "$PSScriptRoot\tools\env.ps1"
 $key = "$env:USERPROFILE\.ssh\beam_relay"
 $vps = "root@217.160.159.14"
 

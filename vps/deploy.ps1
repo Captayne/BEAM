@@ -2,7 +2,7 @@
 # Aufruf aus der Repo-Wurzel ODER aus vps\:  .\vps\deploy.ps1
 # Schiebt ALLE Runtime-Jars (lib\*) -> fuer ersten Aufbau UND Updates gleichermassen ok.
 $ErrorActionPreference = 'Stop'
-$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot"   # JDK 21
+. "$(Split-Path $PSScriptRoot -Parent)\tools\env.ps1"
 $vps = "root@217.160.159.14"
 $key = "$env:USERPROFILE\.ssh\beam_relay"
 
